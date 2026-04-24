@@ -21,6 +21,15 @@
 #define BASE_TOPIC_PREFIX       "somfy"
 #define HA_ONLINE               "online"
 #define HA_OFFLINE              "offline"
+#define MAX_BLINDS              32
+#define MIN_BLINDS              1
+
+#define BLIND_TYPE_BLIND        0
+#define BLIND_TYPE_SHADE        1
+#define BLIND_TYPE_SHUTTER      2
+#define BLIND_TYPE_CURTAIN      3
+#define BLIND_TYPE_AWNING       4
+#define BLIND_TYPE_WINDOW       5
 
 struct DevIdBlob {
   uint32_t magic;
@@ -88,8 +97,12 @@ extern unsigned long lastStaChangeMs;
 extern bool apActive;
 extern unsigned long staConnectedAt;
 
-extern uint32_t remoteId[33];
-extern uint16_t rollingCode[33];
-extern String blindNames[33];
+extern uint8_t blindCount;
+extern bool blindCountConfigured;
+
+extern uint32_t remoteId[MAX_BLINDS + 1];
+extern uint16_t rollingCode[MAX_BLINDS + 1];
+extern String blindNames[MAX_BLINDS + 1];
+extern uint8_t blindTypes[MAX_BLINDS + 1];
 
 #endif

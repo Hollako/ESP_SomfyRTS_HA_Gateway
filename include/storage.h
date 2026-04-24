@@ -6,8 +6,15 @@
 uint8_t crc8(const uint8_t* data, size_t len);
 bool eepromLoadDeviceId(String& out);
 bool eepromSaveDeviceId(const String& id);
+String normalizeDeviceId(const String& raw);
+uint8_t sanitizeBlindType(int rawType);
+const char* blindHaDeviceClass(int n);
 
 String blindName(int n);
+int clampBlindCount(int n);
+bool isValidBlind(int n);
+bool addBlind();
+bool removeBlind(int n);
 String readWholeFile(const char* path);
 
 void setStr(char* dest, size_t len, const String& s);

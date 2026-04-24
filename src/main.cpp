@@ -13,7 +13,7 @@
 #include "web_handlers.h"
 
 const uint32_t DEV_ID_MAGIC = 0x534F4D46;
-const char* HA_MANUFACTURER = "Hollako";
+const char* HA_MANUFACTURER = "SmartWay Systems";
 const char* HA_MODEL = "ESPSomfyRTS";
 const char* HA_SW_VERSION = "1.0.0";
 
@@ -61,9 +61,13 @@ unsigned long lastStaChangeMs = 0;
 bool apActive = false;
 unsigned long staConnectedAt = 0;
 
-uint32_t remoteId[33];
-uint16_t rollingCode[33];
-String blindNames[33];
+uint8_t blindCount = MIN_BLINDS;
+bool blindCountConfigured = false;
+
+uint32_t remoteId[MAX_BLINDS + 1];
+uint16_t rollingCode[MAX_BLINDS + 1];
+String blindNames[MAX_BLINDS + 1];
+uint8_t blindTypes[MAX_BLINDS + 1];
 
 void setup() {
   Serial.begin(115200);
@@ -71,8 +75,13 @@ void setup() {
 
   EEPROM.begin(EEPROM_SIZE);
   String eid;
-  if (eepromLoadDeviceId(eid)) deviceId = eid;
-  else { deviceId = String(ESP.getChipId(), HEX); eepromSaveDeviceId(deviceId); }
+  if (eepromLoadDeviceId(eid)) {
+    deviceId = normalizeDeviceId(eid);
+    if (deviceId != eid) eepromSaveDeviceId(deviceId);
+  } else {
+    deviceId = normalizeDeviceId(String(ESP.getChipId(), HEX));
+    eepromSaveDeviceId(deviceId);
+  }
 
   if (!LittleFS.begin()) { LittleFS.format(); LittleFS.begin(); }
 
@@ -104,7 +113,7 @@ void setup() {
   if (!loadRemotes()) {
     if (!LittleFS.exists(REMOTES_FILE)) {
       genAllRemoteIdsRandom();
-      for (int i = 1; i <= 32; i++) blindNames[i] = "Blind " + String(i);
+      for (int i = 1; i <= blindCount; i++) blindNames[i] = "Blind " + String(i);
       saveRemotes();
       Serial.println("[REM] created new remotes.json");
     } else {
@@ -123,13 +132,22 @@ void setup() {
   server.on("/regen", HTTP_POST, handleRegenPost);
 
   server.on("/rename", HTTP_POST, [](){
-    if (!server.hasArg("b") || !server.hasArg("name")) { server.send(400, "text/plain", "bad"); return; }
+    if (!server.hasArg("b")) { server.send(400, "text/plain", "bad"); return; }
     int b = server.arg("b").toInt();
-    if (b < 1 || b > 32) { server.send(400, "text/plain", "bad"); return; }
-    String nm = server.arg("name");
-    nm.trim();
-    if (nm.length() == 0) nm = String("Blind ") + b;
-    blindNames[b] = nm;
+    if (!isValidBlind(b)) { server.send(400, "text/plain", "bad"); return; }
+    bool updated = false;
+    if (server.hasArg("name")) {
+      String nm = server.arg("name");
+      nm.trim();
+      if (nm.length() == 0) nm = String("Blind ") + b;
+      blindNames[b] = nm;
+      updated = true;
+    }
+    if (server.hasArg("type")) {
+      blindTypes[b] = sanitizeBlindType(server.arg("type").toInt());
+      updated = true;
+    }
+    if (!updated) { server.send(400, "text/plain", "bad"); return; }
     saveRemotes();
     publishHACover(b);
     publishHAProgButton(b);
@@ -142,7 +160,7 @@ void setup() {
 
     int b = server.arg("b").toInt();
     String c = server.arg("cmd");
-    if (b < 1 || b > 32) { server.send(400, "application/json", "{\"ok\":false}"); return; }
+    if (!isValidBlind(b)) { server.send(400, "application/json", "{\"ok\":false}"); return; }
 
     if (c == "OPEN") { sendSomfy(b, REMOTE_RAISE); publishState(b, "open"); }
     else if (c == "CLOSE") { sendSomfy(b, REMOTE_LOWER); publishState(b, "closed"); }
@@ -151,6 +169,55 @@ void setup() {
     else { server.send(400, "application/json", "{\"ok\":false}"); return; }
 
     server.send(200, "application/json", "{\"ok\":true}");
+  });
+
+  server.on("/blind/add", HTTP_POST, [](){
+    if (addBlind()) {
+      if (mqtt.connected()) {
+        mqtt.subscribe((blindBaseTopic(blindCount) + "/set").c_str());
+        mqtt.subscribe((blindBaseTopic(blindCount) + "/stop").c_str());
+        mqtt.subscribe((blindBaseTopic(blindCount) + "/prog").c_str());
+        rediscoveryScheduled = true;
+        rediscoveryPtr = blindCount;
+        nextRediscoveryAt = millis() + 200;
+      }
+    }
+    server.sendHeader("Location", "/");
+    server.send(302, "text/plain", "");
+  });
+
+  server.on("/blind/remove", HTTP_POST, [](){
+    int removed = server.hasArg("b") ? server.arg("b").toInt() : 0;
+    int oldCount = blindCount;
+    if (removeBlind(removed)) {
+      if (mqtt.connected()) {
+        mqtt.unsubscribe((blindBaseTopic(oldCount) + "/set").c_str());
+        mqtt.unsubscribe((blindBaseTopic(oldCount) + "/stop").c_str());
+        mqtt.unsubscribe((blindBaseTopic(oldCount) + "/prog").c_str());
+        mqtt.publish((blindBaseTopic(oldCount) + "/state").c_str(), "", true);
+        clearHABlindDiscovery(oldCount);
+        rediscoveryScheduled = true;
+        rediscoveryPtr = removed;
+        nextRediscoveryAt = millis() + 200;
+      }
+      if (rediscoveryPtr > blindCount) rediscoveryPtr = blindCount;
+    }
+    server.sendHeader("Location", "/");
+    server.send(302, "text/plain", "");
+  });
+
+  server.on("/ha/rediscover", HTTP_POST, [](){
+    if (mqtt.connected()) {
+      publishHAGatewayDiscovery();
+      publishGatewayDiagnostics();
+    }
+    rediscoveryScheduled = true;
+    rediscoveryPtr = 1;
+    nextRediscoveryAt = millis() + 200;
+    if (mqtt.connected()) publishAvailability(HA_ONLINE);
+    String redir = server.hasArg("redirect") ? server.arg("redirect") : String("/config");
+    server.sendHeader("Location", redir);
+    server.send(302, "text/plain", "ok");
   });
 
   server.on("/config.json", HTTP_GET, [](){
@@ -277,7 +344,7 @@ void loop() {
 
   if (rediscoveryScheduled && mqtt.connected()) {
     if (millis() >= nextRediscoveryAt) {
-      if (rediscoveryPtr >= 1 && rediscoveryPtr <= 32) {
+      if (rediscoveryPtr >= 1 && rediscoveryPtr <= blindCount) {
         publishHACover(rediscoveryPtr);
         publishHAProgButton(rediscoveryPtr);
         publishState(rediscoveryPtr, "unknown");
@@ -295,6 +362,11 @@ void loop() {
       if (WiFi.status() == WL_CONNECTED) mqttEnsureConnected();
     } else {
       mqtt.loop();
+      static unsigned long lastDiagAt = 0;
+      if (millis() - lastDiagAt >= 10000UL) {
+        publishGatewayDiagnostics();
+        lastDiagAt = millis();
+      }
     }
   }
 

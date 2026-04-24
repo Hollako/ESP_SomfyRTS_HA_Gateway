@@ -5,6 +5,7 @@
 #include <ArduinoJson.h>
 #include <EEPROM.h>
 #include <string.h>
+#include <ctype.h>
 
 extern "C" {
   #include <user_interface.h>
@@ -41,8 +42,115 @@ bool eepromSaveDeviceId(const String &id) {
   return EEPROM.commit();
 }
 
+String normalizeDeviceId(const String& raw) {
+  String out;
+  out.reserve(32);
+
+  for (size_t i = 0; i < raw.length(); i++) {
+    char c = raw[i];
+    if (isalnum((unsigned char)c) || c == '_' || c == '-') out += c;
+    else if (c == ' ' || c == '.') out += '_';
+    else out += '_';
+    if (out.length() >= 31) break;
+  }
+
+  while (out.startsWith("_")) out.remove(0, 1);
+  while (out.endsWith("_")) out.remove(out.length() - 1, 1);
+  while (out.indexOf("__") >= 0) out.replace("__", "_");
+
+  if (out.length() == 0) out = String(ESP.getChipId(), HEX);
+  return out;
+}
+
+uint8_t sanitizeBlindType(int rawType) {
+  if (rawType < BLIND_TYPE_BLIND || rawType > BLIND_TYPE_WINDOW) return BLIND_TYPE_BLIND;
+  return (uint8_t)rawType;
+}
+
+const char* blindHaDeviceClass(int n) {
+  if (!isValidBlind(n)) return "blind";
+  switch (blindTypes[n]) {
+    case BLIND_TYPE_SHADE: return "shade";
+    case BLIND_TYPE_SHUTTER: return "shutter";
+    case BLIND_TYPE_CURTAIN: return "curtain";
+    case BLIND_TYPE_AWNING: return "awning";
+    case BLIND_TYPE_WINDOW: return "window";
+    case BLIND_TYPE_BLIND:
+    default: return "blind";
+  }
+}
+
+int clampBlindCount(int n) {
+  if (n < MIN_BLINDS) return MIN_BLINDS;
+  if (n > MAX_BLINDS) return MAX_BLINDS;
+  return n;
+}
+
+bool isValidBlind(int n) {
+  return n >= 1 && n <= blindCount;
+}
+
+static void ensureBlindInitialized(int n) {
+  if (n < 1 || n > MAX_BLINDS) return;
+  if (remoteId[n] == 0) {
+    uint32_t v; int guard = 0;
+    do {
+      v = genRandom24();
+      guard++;
+    } while (!isUniqueId(v) && guard < 200);
+    remoteId[n] = v;
+  }
+  if (rollingCode[n] == 0) rollingCode[n] = 1;
+  if (blindNames[n].length() == 0) blindNames[n] = String("Blind ") + n;
+  blindTypes[n] = sanitizeBlindType(blindTypes[n]);
+}
+
+static bool looksLikeDefaultBlindName(const String& name) {
+  if (!name.startsWith("Blind ")) return false;
+  if (name.length() <= 6) return false;
+  for (size_t i = 6; i < name.length(); i++) {
+    if (name[i] < '0' || name[i] > '9') return false;
+  }
+  return true;
+}
+
+static void normalizeDefaultBlindNames() {
+  for (int i = 1; i <= blindCount; i++) {
+    if (looksLikeDefaultBlindName(blindNames[i])) {
+      blindNames[i] = String("Blind ") + i;
+    }
+  }
+}
+
+bool addBlind() {
+  if (blindCount >= MAX_BLINDS) return false;
+  blindCount = clampBlindCount(blindCount + 1);
+  ensureBlindInitialized(blindCount);
+  normalizeDefaultBlindNames();
+  return saveConfig() && saveRemotes();
+}
+
+bool removeBlind(int n) {
+  if (!isValidBlind(n)) return false;
+  if (blindCount <= MIN_BLINDS) return false;
+
+  for (int i = n; i < blindCount; i++) {
+    remoteId[i] = remoteId[i + 1];
+    rollingCode[i] = rollingCode[i + 1];
+    blindNames[i] = blindNames[i + 1];
+    blindTypes[i] = blindTypes[i + 1];
+  }
+  remoteId[blindCount] = 0;
+  rollingCode[blindCount] = 0;
+  blindNames[blindCount] = "";
+  blindTypes[blindCount] = BLIND_TYPE_BLIND;
+  blindCount = clampBlindCount(blindCount - 1);
+  normalizeDefaultBlindNames();
+  return saveConfig() && saveRemotes();
+}
+
 String blindName(int n) {
-  if (n < 1 || n > 32) return "Blind ?";
+  if (!isValidBlind(n)) return "Blind ?";
   if (blindNames[n].length() == 0) return String("Blind ") + n;
   return blindNames[n];
 }
@@ -70,14 +178,14 @@ uint32_t genRandom24() {
 }
 
 bool isUniqueId(uint32_t candidate) {
-  for (int i=1; i<=32; i++) {
+  for (int i = 1; i <= MAX_BLINDS; i++) {
     if (remoteId[i] == candidate) return false;
   }
   return true;
 }
 
 void genAllRemoteIdsRandom() {
-  for (int i = 1; i <= 32; i++) {
+  for (int i = 1; i <= blindCount; i++) {
     uint32_t v; int guard = 0;
     do {
       v = genRandom24();
@@ -127,6 +235,8 @@ bool loadConfig() {
   if (doc.containsKey("mqtt_user"))    setStr(cfg.mqtt_user, sizeof(cfg.mqtt_user), String((const char*)doc["mqtt_user"]));
   if (doc.containsKey("mqtt_pass"))    setStr(cfg.mqtt_pass, sizeof(cfg.mqtt_pass), String((const char*)doc["mqtt_pass"]));
   if (doc.containsKey("ha_discovery")) cfg.ha_discovery = (bool)doc["ha_discovery"];
+  blindCountConfigured = doc.containsKey("blind_count");
+  if (blindCountConfigured) blindCount = clampBlindCount((int)doc["blind_count"]);
   if (doc.containsKey("tx_pin"))       txPin = sanitizeGpio((int)doc["tx_pin"]);
   if (doc.containsKey("led_pin"))      ledPin = sanitizeLedGpio((int)doc["led_pin"]);
   if (doc.containsKey("led_invert"))   ledActiveLow = (bool)doc["led_invert"];
@@ -156,7 +266,7 @@ bool fsEnsureWritable() {
 }
 
 bool saveConfig() {
-  if (deviceId.length() == 0) deviceId = String(ESP.getChipId(), HEX);
+  deviceId = normalizeDeviceId(deviceId);
 
   DynamicJsonDocument doc(1536);
   doc["device_id"]    = deviceId;
@@ -169,6 +279,7 @@ bool saveConfig() {
   doc["mqtt_user"]    = cfg.mqtt_user;
   doc["mqtt_pass"]    = cfg.mqtt_pass;
   doc["ha_discovery"] = cfg.ha_discovery;
+  doc["blind_count"]  = blindCount;
   doc["tx_pin"]       = txPin;
   doc["led_pin"]      = ledPin;
   doc["led_invert"]   = ledActiveLow;
@@ -204,19 +315,27 @@ bool loadRemotes() {
     return false;
   }
 
-  for (int i = 1; i <= 32; i++) {
+  int inferredBlindCount = MIN_BLINDS;
+  for (int i = 1; i <= MAX_BLINDS; i++) {
     String rk = "r"  + String(i);
     String ck = "rc" + String(i);
     String nk = "n"  + String(i);
+    String tk = "t"  + String(i);
+    bool hasAny = doc.containsKey(rk) || doc.containsKey(ck) || doc.containsKey(nk);
+    if (hasAny) inferredBlindCount = i;
 
     remoteId[i]    = (uint32_t)(doc[rk]  | 0);
     rollingCode[i] = (uint16_t)(doc[ck]  | 1);
     String name    =               doc[nk] | ("Blind " + String(i));
+    blindTypes[i]  = sanitizeBlindType((int)(doc[tk] | BLIND_TYPE_BLIND));
 
     if (remoteId[i] == 0) remoteId[i] = genRandom24();
     if (rollingCode[i] == 0) rollingCode[i] = 1;
     blindNames[i] = name;
   }
+  if (!blindCountConfigured) blindCount = clampBlindCount(inferredBlindCount);
+  for (int i = 1; i <= blindCount; i++) ensureBlindInitialized(i);
+  normalizeDefaultBlindNames();
 
   Serial.printf("[REM] loaded OK (%u bytes)\n", (unsigned)sz);
   return true;
@@ -266,12 +385,13 @@ bool saveRemotes() {
   if (!f) return false;
 
   f.print("{\"v\":1");
-  for (int i=1; i<=32; i++) {
+  for (int i = 1; i <= blindCount; i++) {
     f.print(",\"r"); f.print(i); f.print("\":");  f.print(remoteId[i]);
     f.print(",\"rc"); f.print(i); f.print("\":"); f.print(rollingCode[i]);
     f.print(",\"n"); f.print(i); f.print("\":\"");
     f.print(jsonEscape(blindNames[i]));
     f.print("\"");
+    f.print(",\"t"); f.print(i); f.print("\":"); f.print(blindTypes[i]);
     if ((i % 4) == 0) delay(0);
   }
   f.print("}");

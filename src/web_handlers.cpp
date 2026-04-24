@@ -8,6 +8,14 @@
 #include "wifi_manager.h"
 #include "mqtt_ha.h"
 
+static String prettyDeviceNameForUi() {
+  String s = deviceId;
+  s.replace('_', ' ');
+  s.trim();
+  if (s.length() == 0) s = deviceId;
+  return s;
+}
+
 void sendRebootingPage(const String& title, const String& detail, int countdownSec, uint32_t startPollDelayMs) {
   String html =
     F("<!doctype html><html><head><meta charset='utf-8'>"
@@ -19,7 +27,7 @@ void sendRebootingPage(const String& title, const String& detail, int countdownS
       "</style></head><body><h2>");
   html += title;
   html += F(" &#10003;</h2><div class='pill'>");
-  html += deviceId;
+  html += prettyDeviceNameForUi();
   html += F("</div><p>Rebooting the controller... <b><span id='s'>");
   html += String(countdownSec);
   html += F("</span>s</b></p>");
@@ -80,6 +88,8 @@ static inline void pageBegin(const String& title) {
       "button.btn:hover{filter:brightness(0.95)}"
       ".btn-warn{border-color:#e03131;background:#ffe3e3;color:#e03131}"
       "body.dark .btn-warn{background:rgba(224,49,49,.1);color:#ff6b6b}"
+      ".btn-x{width:30px;height:30px;padding:0;line-height:1;font-weight:700;border-color:#e03131;background:#ffe3e3;color:#e03131}"
+      "body.dark .btn-x{background:rgba(224,49,49,.1);color:#ff6b6b}"
       "</style>"
       "<script>"
       "function upd(b){"
@@ -109,7 +119,7 @@ static inline void pageBegin(const String& title) {
     ));
 
   server.sendContent(F("<div class='nav'><strong>ESP Somfy RTS - "));
-  server.sendContent(deviceId);
+  server.sendContent(prettyDeviceNameForUi());
   server.sendContent(
     F("</strong><div class='sp'></div>"
       "<a class='btn' href='/'>Home</a>"
@@ -137,13 +147,37 @@ void handleRootGet() {
   pageBegin("Home");
 
   pageWrite(F("<h1>Controls</h1>"));
+  pageWrite(F("<div class='card'><div class='bar'>"
+              "<div class='muted'>Active blinds: "));
+  pageWrite(String(blindCount));
+  pageWrite(F(" / "));
+  pageWrite(String(MAX_BLINDS));
+  pageWrite(F("</div>"
+              "<form method='POST' action='/blind/add'>"));
+  if (blindCount >= MAX_BLINDS) {
+    pageWrite(F("<button class='btn btn-sm' type='submit' disabled>Max blinds reached</button>"));
+  } else {
+    pageWrite(F("<button class='btn btn-sm' type='submit'>Add blind</button>"));
+  }
+  pageWrite(F("</form></div></div>"));
+
   pageWrite(F("<div class='card'><div class='grid2'>"));
 
-  for (int i=1; i<=32; i++) {
+  for (int i = 1; i <= blindCount; i++) {
     pageWrite(F("<div class='cardb'>"));
-    pageWrite(F("<div class='title'>"));
+    pageWrite(F("<div class='rowline' style='margin:0 0 6px 0'>"));
+    pageWrite(F("<div class='title' style='margin:0'>"));
     pageWrite(blindName(i));
-    pageWrite(F("</div>"));
+    pageWrite(F("</div><form method='POST' action='/blind/remove' style='margin:0' onsubmit=\"return confirm('Remove this blind?');\">"
+                "<input type='hidden' name='b' value='"));
+    pageWrite(String(i));
+    pageWrite(F("'>"));
+    if (blindCount <= MIN_BLINDS) {
+      pageWrite(F("<button class='btn btn-sm btn-x' type='submit' disabled title='Minimum 1 blind'>X</button>"));
+    } else {
+      pageWrite(F("<button class='btn btn-sm btn-x' type='submit' title='Remove blind'>X</button>"));
+    }
+    pageWrite(F("</form></div>"));
 
     char hexbuf[16]; sprintf(hexbuf, "%06X", remoteId[i]);
     pageWrite(F("<div class='rowline'><div class='muted'>Remote ID</div><div class='muted'>0x"));
@@ -154,12 +188,36 @@ void handleRootGet() {
     pageWrite(String(rollingCode[i]));
     pageWrite(F("</div></div>"));
 
-    pageWrite(F("<form method='POST' action='/rename' style='margin-top:8px;display:flex;gap:6px;align-items:center'>"
+    pageWrite(F("<div class='rowline' style='margin-top:8px;align-items:stretch'>"
+                "<form method='POST' action='/rename' style='display:flex;gap:6px;align-items:center;flex:1;margin:0'>"
                 "<input type='hidden' name='b' value='"));
     pageWrite(String(i));
-    pageWrite(F("'><input class='in' name='name' type='text' value='"));
+    pageWrite(F("'><input class='in' name='name' type='text' style='flex:1;min-width:140px' value='"));
     pageWrite(blindName(i));
-    pageWrite(F("'><button class='btn btn-sm' type='submit'>Save name</button></form>"));
+    pageWrite(F("'><button class='btn btn-sm' type='submit'>Save name</button></form>"
+                "<form method='POST' action='/rename' style='display:flex;gap:6px;align-items:center;margin:0'>"
+                "<input type='hidden' name='b' value='"));
+    pageWrite(String(i));
+    pageWrite(F("'><select name='type' style='min-width:150px' onchange='this.form.submit()'>"));
+    pageWrite(F("<option value='0'"));
+    if (blindTypes[i] == BLIND_TYPE_BLIND) pageWrite(F(" selected"));
+    pageWrite(F(">Blind</option>"));
+    pageWrite(F("<option value='1'"));
+    if (blindTypes[i] == BLIND_TYPE_SHADE) pageWrite(F(" selected"));
+    pageWrite(F(">Shade</option>"));
+    pageWrite(F("<option value='2'"));
+    if (blindTypes[i] == BLIND_TYPE_SHUTTER) pageWrite(F(" selected"));
+    pageWrite(F(">Roller Shutter</option>"));
+    pageWrite(F("<option value='3'"));
+    if (blindTypes[i] == BLIND_TYPE_CURTAIN) pageWrite(F(" selected"));
+    pageWrite(F(">Curtain</option>"));
+    pageWrite(F("<option value='4'"));
+    if (blindTypes[i] == BLIND_TYPE_AWNING) pageWrite(F(" selected"));
+    pageWrite(F(">Awning</option>"));
+    pageWrite(F("<option value='5'"));
+    if (blindTypes[i] == BLIND_TYPE_WINDOW) pageWrite(F(" selected"));
+    pageWrite(F(">Window</option>"));
+    pageWrite(F("</select></form></div>"));
 
     pageWrite(F("<div class='bar' style='margin-top:6px'>"));
     pageWrite(F("<div class='group'>"));
@@ -281,7 +339,7 @@ void handleApPortalConfigPost() {
 
 void handleConfigPost() {
   if (server.hasArg("device_id")) {
-    deviceId = server.arg("device_id");
+    deviceId = normalizeDeviceId(server.arg("device_id"));
     eepromSaveDeviceId(deviceId);
   }
   if (server.hasArg("wifi_ssid")) setStr(cfg.wifi_ssid, sizeof(cfg.wifi_ssid), server.arg("wifi_ssid"));
@@ -349,7 +407,7 @@ void handleConfigGet() {
   pageWrite(F("<div class='card form-sec'><h3>Device</h3>"));
   pageWrite(F("<div class='form-grid'>"));
     pageWrite(F("<div class='field'><label>Device ID</label><input name='device_id' type='text' value='"));
-    pageWrite(deviceId);
+    pageWrite(prettyDeviceNameForUi());
     pageWrite(F("'></div>"));
     pageWrite(F("<div class='field'><label>Somfy TX GPIO</label><select name='tx_pin'>"));
     pageWrite(gpioOptions(txPin));
@@ -420,8 +478,10 @@ void handleConfigGet() {
 
   pageWrite(F("<div class='card'>"
               "<div class='rowline'>"
-                "<div class='desc'>Regenerate ALL Remote IDs (1..32) and reset rolling codes. This will require re-pairing your Somfy motors.</div>"
-                "<form method='POST' action='/regen' onsubmit=\"return confirm('Regenerate ALL 32 remotes?\\nThis resets all IDs and rolling codes and requires re-pairing.');\">"
+                "<div class='desc'>Regenerate all active Remote IDs (1.."));
+  pageWrite(String(blindCount));
+  pageWrite(F(") and reset rolling codes. This will require re-pairing your Somfy motors.</div>"
+                "<form method='POST' action='/regen' onsubmit=\"return confirm('Regenerate all active remotes?\\nThis resets IDs and rolling codes and requires re-pairing.');\">"
                   "<input type='hidden' name='all' value='1'>"
                   "<input type='hidden' name='redirect' value='/config'>"
                   "<button class='btn btn-warn' type='submit'>Regenerate ALL</button>"
@@ -430,6 +490,13 @@ void handleConfigGet() {
               "<div class='rowline' style='margin-top:10px'>"
                 "<div class='desc'>Reboot device (Home Assistant discovery will be republished during boot).</div>"
                 "<button class='btn' type='button' onclick=\"location.href='/reboot'\">Reboot</button>"
+              "</div>"
+              "<div class='rowline' style='margin-top:10px'>"
+                "<div class='desc'>Manually republish Home Assistant discovery topics now.</div>"
+                "<form method='POST' action='/ha/rediscover'>"
+                  "<input type='hidden' name='redirect' value='/config'>"
+                  "<button class='btn' type='submit'>Republish HA Discovery</button>"
+                "</form>"
               "</div>"
             "</div>"));
 
@@ -480,7 +547,7 @@ void handleRegenPost() {
     did = true;
   } else if (server.hasArg("b")) {
     int b = server.arg("b").toInt();
-    if (b >= 1 && b <= 32) {
+    if (isValidBlind(b)) {
       remoteId[b] = genRandom24();
       rollingCode[b] = 1;
       if (!saveRemotes()) Serial.println("[REM] save FAILED");
@@ -558,7 +625,7 @@ void handleRestoreBackupPost() {
       if (jd.containsKey("device_id")) di = jd["device_id"];
       else if (jd.containsKey("config") && jd["config"].containsKey("device_id")) di = jd["config"]["device_id"];
       if (di && di[0]) {
-        deviceId = String(di);
+        deviceId = normalizeDeviceId(String(di));
         eepromSaveDeviceId(deviceId);
         WiFi.hostname(deviceId.c_str());
       }

@@ -5,21 +5,30 @@
 #include <EEPROM.h>
 
 #include "storage.h"
+#include "wifi_manager.h"
+
+static String prettyDeviceName() {
+  String name = deviceId;
+  name.replace('_', ' ');
+  name.trim();
+  if (name.length() == 0) name = deviceId;
+  return name;
+}
 
 uint16_t getRolling(int b) {
-  if (b < 1 || b > 32) return 1;
+  if (!isValidBlind(b)) return 1;
   if (rollingCode[b] == 0) rollingCode[b] = 1;
   return rollingCode[b];
 }
 
 void setRolling(int b, uint16_t next) {
-  if (b < 1 || b > 32) return;
+  if (!isValidBlind(b)) return;
   rollingCode[b] = next;
   saveRemotes();
 }
 
 void sendSomfy(int blind, byte button) {
-  if (blind < 1 || blind > 32) return;
+  if (!isValidBlind(blind)) return;
   uint16_t next = somfy.sendButton(remoteId[blind], button, getRolling(blind));
   setRolling(blind, next);
 }
@@ -30,6 +39,10 @@ String availabilityTopic() {
 
 String blindBaseTopic(int n) {
   return String(BASE_TOPIC_PREFIX) + "/" + deviceId + "/blind_" + String(n);
+}
+
+String gatewayBaseTopic() {
+  return String(BASE_TOPIC_PREFIX) + "/" + deviceId + "/gateway";
 }
 
 void publishAvailability(const char* payload) {
@@ -54,7 +67,7 @@ void addHadeviceBlock(JsonDocument& doc) {
 
   dev["manufacturer"] = HA_MANUFACTURER;
   dev["model"] = HA_MODEL;
-  dev["name"] = String("Somfy RTS ") + deviceId;
+  dev["name"] = prettyDeviceName();
   dev["sw_version"] = HA_SW_VERSION;
 
   IPAddress ip = (WiFi.status() == WL_CONNECTED) ? WiFi.localIP() : WiFi.softAPIP();
@@ -75,6 +88,7 @@ void publishHACover(int n) {
   doc["payload_close"] = "CLOSE";
   doc["payload_stop"] = "STOP";
   doc["optimistic"] = true;
+  doc["device_class"] = blindHaDeviceClass(n);
 
   addHadeviceBlock(doc);
 
@@ -100,9 +114,132 @@ void publishHAProgButton(int n) {
   mqtt.publish(discTopic.c_str(), payload.c_str(), true);
 }
 
+void publishHAGatewayDiscovery() {
+  DynamicJsonDocument doc(640);
+  String payload;
+
+  {
+    String discTopic = String(HA_DISCOVERY_PREFIX) + "/button/" + deviceId + "/gateway_rediscover/config";
+    doc.clear();
+    doc["name"] = "Gateway Re-publish Discovery";
+    doc["unique_id"] = deviceId + String("_gateway_rediscover");
+    doc["command_topic"] = gatewayBaseTopic() + "/rediscover";
+    doc["payload_press"] = "PRESS";
+    doc["availability_topic"] = availabilityTopic();
+    doc["entity_category"] = "config";
+    addHadeviceBlock(doc);
+    payload = "";
+    serializeJson(doc, payload);
+    mqtt.publish(discTopic.c_str(), payload.c_str(), true);
+  }
+
+  {
+    String discTopic = String(HA_DISCOVERY_PREFIX) + "/button/" + deviceId + "/gateway_reboot/config";
+    doc.clear();
+    doc["name"] = "Gateway Reboot";
+    doc["unique_id"] = deviceId + String("_gateway_reboot");
+    doc["command_topic"] = gatewayBaseTopic() + "/reboot";
+    doc["payload_press"] = "PRESS";
+    doc["availability_topic"] = availabilityTopic();
+    doc["entity_category"] = "config";
+    doc["device_class"] = "restart";
+    addHadeviceBlock(doc);
+    payload = "";
+    serializeJson(doc, payload);
+    mqtt.publish(discTopic.c_str(), payload.c_str(), true);
+  }
+
+  {
+    String discTopic = String(HA_DISCOVERY_PREFIX) + "/sensor/" + deviceId + "/gateway_free_heap/config";
+    doc.clear();
+    doc["name"] = "Gateway Free Heap";
+    doc["unique_id"] = deviceId + String("_gateway_free_heap");
+    doc["state_topic"] = gatewayBaseTopic() + "/free_heap";
+    doc["unit_of_measurement"] = "B";
+    doc["entity_category"] = "diagnostic";
+    doc["icon"] = "mdi:memory";
+    doc["availability_topic"] = availabilityTopic();
+    addHadeviceBlock(doc);
+    payload = "";
+    serializeJson(doc, payload);
+    mqtt.publish(discTopic.c_str(), payload.c_str(), true);
+  }
+
+  {
+    String discTopic = String(HA_DISCOVERY_PREFIX) + "/sensor/" + deviceId + "/gateway_ip/config";
+    doc.clear();
+    doc["name"] = "Gateway IP";
+    doc["unique_id"] = deviceId + String("_gateway_ip");
+    doc["state_topic"] = gatewayBaseTopic() + "/ip";
+    doc["entity_category"] = "diagnostic";
+    doc["icon"] = "mdi:ip-network";
+    doc["availability_topic"] = availabilityTopic();
+    addHadeviceBlock(doc);
+    payload = "";
+    serializeJson(doc, payload);
+    mqtt.publish(discTopic.c_str(), payload.c_str(), true);
+  }
+
+  {
+    String discTopic = String(HA_DISCOVERY_PREFIX) + "/sensor/" + deviceId + "/gateway_uptime/config";
+    doc.clear();
+    doc["name"] = "Gateway Uptime";
+    doc["unique_id"] = deviceId + String("_gateway_uptime");
+    doc["state_topic"] = gatewayBaseTopic() + "/uptime_min";
+    doc["unit_of_measurement"] = "min";
+    doc["entity_category"] = "diagnostic";
+    doc["icon"] = "mdi:clock-outline";
+    doc["availability_topic"] = availabilityTopic();
+    addHadeviceBlock(doc);
+    payload = "";
+    serializeJson(doc, payload);
+    mqtt.publish(discTopic.c_str(), payload.c_str(), true);
+  }
+
+  {
+    String discTopic = String(HA_DISCOVERY_PREFIX) + "/sensor/" + deviceId + "/gateway_wifi_signal/config";
+    doc.clear();
+    doc["name"] = "Gateway WiFi Signal";
+    doc["unique_id"] = deviceId + String("_gateway_wifi_signal");
+    doc["state_topic"] = gatewayBaseTopic() + "/wifi_signal";
+    doc["unit_of_measurement"] = "%";
+    doc["entity_category"] = "diagnostic";
+    doc["icon"] = "mdi:wifi";
+    doc["availability_topic"] = availabilityTopic();
+    addHadeviceBlock(doc);
+    payload = "";
+    serializeJson(doc, payload);
+    mqtt.publish(discTopic.c_str(), payload.c_str(), true);
+  }
+}
+
+void publishGatewayDiagnostics() {
+  int32_t rssi = WiFi.RSSI();
+  int pct = constrain(map(rssi, -90, -30, 0, 100), 0, 100);
+  String ip = (WiFi.status() == WL_CONNECTED) ? WiFi.localIP().toString() : "0.0.0.0";
+  unsigned long uptimeMin = millis() / 60000UL;
+  String heapStr = String(ESP.getFreeHeap());
+  String uptimeStr = String(uptimeMin);
+  String pctStr = String(pct);
+
+  mqtt.publish((gatewayBaseTopic() + "/free_heap").c_str(), heapStr.c_str(), true);
+  mqtt.publish((gatewayBaseTopic() + "/ip").c_str(), ip.c_str(), true);
+  mqtt.publish((gatewayBaseTopic() + "/uptime_min").c_str(), uptimeStr.c_str(), true);
+  mqtt.publish((gatewayBaseTopic() + "/wifi_signal").c_str(), pctStr.c_str(), true);
+}
+
+void clearHABlindDiscovery(int n) {
+  String coverTopic = String(HA_DISCOVERY_PREFIX) + "/cover/" + deviceId + "/blind_" + String(n) + "/config";
+  String progTopic = String(HA_DISCOVERY_PREFIX) + "/button/" + deviceId + "/blind_" + String(n) + "_prog/config";
+  mqtt.publish(coverTopic.c_str(), "", true);
+  mqtt.publish(progTopic.c_str(), "", true);
+}
+
 void publishAllDiscoverySafe() {
   if (!cfg.ha_discovery) return;
-  for (int i = 1; i <= 32; i++) {
+  publishHAGatewayDiscovery();
+  publishGatewayDiagnostics();
+  for (int i = 1; i <= blindCount; i++) {
     publishHACover(i);
     publishHAProgButton(i);
     publishState(i, "unknown");
@@ -124,6 +261,35 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   for (unsigned int i = 0; i < length; i++) msg += (char)payload[i];
   String top = String(topic);
 
+  String haStatusTopic = String(HA_DISCOVERY_PREFIX) + "/status";
+  if (top == haStatusTopic) {
+    if (msg == "online") {
+      publishHAGatewayDiscovery();
+      publishGatewayDiagnostics();
+      rediscoveryScheduled = true;
+      rediscoveryPtr = 1;
+      nextRediscoveryAt = millis() + 200;
+      publishAvailability(HA_ONLINE);
+    }
+    return;
+  }
+
+  String gwPrefix = gatewayBaseTopic() + "/";
+  if (top.startsWith(gwPrefix)) {
+    String action = top.substring(gwPrefix.length());
+    if (action == "rediscover" && msg == "PRESS") {
+      publishHAGatewayDiscovery();
+      publishGatewayDiagnostics();
+      rediscoveryScheduled = true;
+      rediscoveryPtr = 1;
+      nextRediscoveryAt = millis() + 200;
+      publishAvailability(HA_ONLINE);
+    } else if (action == "reboot" && msg == "PRESS") {
+      scheduleReboot(800);
+    }
+    return;
+  }
+
   String prefix = String(BASE_TOPIC_PREFIX) + "/" + deviceId + "/blind_";
   if (!top.startsWith(prefix)) return;
 
@@ -131,7 +297,7 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   int slash = rest.indexOf('/');
   if (slash < 0) return;
   int blind = rest.substring(0, slash).toInt();
-  if (blind < 1 || blind > 32) return;
+  if (!isValidBlind(blind)) return;
   String action = rest.substring(slash + 1);
 
   if (action == "set") {
@@ -180,7 +346,12 @@ void mqttEnsureConnected() {
 
   if (ok) {
     publishAvailability(HA_ONLINE);
-    for (int i = 1; i <= 32; i++) {
+    mqtt.subscribe((String(HA_DISCOVERY_PREFIX) + "/status").c_str());
+    mqtt.subscribe((gatewayBaseTopic() + "/rediscover").c_str());
+    mqtt.subscribe((gatewayBaseTopic() + "/reboot").c_str());
+    publishHAGatewayDiscovery();
+    publishGatewayDiagnostics();
+    for (int i = 1; i <= blindCount; i++) {
       mqtt.subscribe((blindBaseTopic(i) + "/set").c_str());
       mqtt.subscribe((blindBaseTopic(i) + "/stop").c_str());
       mqtt.subscribe((blindBaseTopic(i) + "/prog").c_str());
