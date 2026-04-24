@@ -1,0 +1,33 @@
+name: Build & Release Firmware
+
+on:
+  push:
+    tags:
+      - 'v*'   # triggers on version tags like v1.0
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install PlatformIO and Python deps
+        run: pip install platformio intelhex
+
+      - name: Build firmware
+        run: pio run -e esp8266 -e esp32
+
+      - name: Rename firmware files
+        run: |
+          cp .pio/build/esp8266/firmware.bin ESP8266_Dynet_Gateway.bin
+          cp .pio/build/esp32/firmware.bin ESP32_Dynet_Gateway.bin
+
+      - name: Upload firmware to release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            ESP8266_Dynet_Gateway.bin
+            ESP32_Dynet_Gateway.bin
