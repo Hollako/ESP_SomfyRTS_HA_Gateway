@@ -126,6 +126,13 @@ void setup() {
     else handleRootGet();
   });
 
+  server.on("/logo.png", HTTP_GET, [](){
+    File f = LittleFS.open("/logo.png", "r");
+    if (!f) { server.send(404, "text/plain", "not found"); return; }
+    server.streamFile(f, "image/png");
+    f.close();
+  });
+
   server.on("/ap_portal_config", HTTP_POST, handleApPortalConfigPost);
   server.on("/config", HTTP_GET, handleConfigGet);
   server.on("/config", HTTP_POST, handleConfigPost);
@@ -247,6 +254,8 @@ void setup() {
   });
 
   server.on("/restore_backup", HTTP_POST, handleRestoreBackupPost, handleRestoreBackupUpload);
+  server.on("/update", HTTP_GET,  handleUpdateGet);
+  server.on("/update", HTTP_POST, handleUpdatePost, handleUpdateUpload);
 
   server.on("/status", HTTP_GET, [](){
     DynamicJsonDocument doc(384);

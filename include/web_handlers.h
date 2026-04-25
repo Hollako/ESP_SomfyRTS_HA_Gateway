@@ -13,5 +13,8 @@ void handleConfigGet();
 void handleRegenPost();
 void handleRestoreBackupUpload();
 void handleRestoreBackupPost();
+void handleUpdateGet();
+void handleUpdatePost();
+void handleUpdateUpload();
 
 #endif

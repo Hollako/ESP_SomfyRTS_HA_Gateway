@@ -2,6 +2,7 @@
 
 #include <LittleFS.h>
 #include <ArduinoJson.h>
+#include <Updater.h>
 
 #include "app_state.h"
 #include "storage.h"
@@ -61,8 +62,18 @@ static inline void pageBegin(const String& title) {
       ":root{--bg:#fff;--fg:#111;--muted:#666;--card:#fff;--border:#e5e5e5}"
       "body.dark {--bg:#0f1216;--fg:#e5e7eb;--muted:#9ca3af;--card:#161a20;--border:#273245;}"
       "body{background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;margin:0;line-height:1.35}"
-      ".nav{position:sticky;top:0;z-index:10;display:flex;gap:10px;align-items:center;padding:10px 14px;border-bottom:1px solid var(--border);background:var(--bg)}"
+      ".nav{position:sticky;top:0;z-index:10;display:flex;gap:8px;align-items:center;padding:8px 18px;border-bottom:1px solid var(--border);background:var(--bg)}"
       ".nav .sp{flex:1}"
+      ".nav-logo{display:flex;align-items:center;gap:10px;text-decoration:none;color:inherit}"
+      ".nav-logo img{height:52px;width:auto;display:block}"
+      ".nav-title{font-size:18px;font-weight:700;white-space:nowrap}"
+      ".btn.nicn{display:inline-flex;align-items:center;justify-content:center;width:42px;height:42px;font-size:22px;padding:0;min-width:unset;min-height:unset;border-radius:10px;color:var(--fg);text-decoration:none;cursor:pointer}"
+      ".btn.nicn:hover{filter:brightness(0.92)}"
+      ".btn.nicn svg{stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}"
+      ".icon-sun{display:none}.icon-moon{display:block}"
+      "body.dark .icon-sun{display:block}body.dark .icon-moon{display:none}"
+      ".btn.nicn.nicn-red{border-color:#e03131;color:#e03131;background:#ffe3e3}"
+      "body.dark .btn.nicn.nicn-red{border-color:#e03131;color:#e03131;background:#ffe3e3}"
       ".btn{display:inline-block;padding:8px 12px;border:1px solid var(--border);border-radius:10px;background:var(--card);cursor:pointer}"
       "a{color:inherit;text-decoration:none}"
       "a.btn{text-decoration:none;color:inherit}"
@@ -118,16 +129,31 @@ static inline void pageBegin(const String& title) {
       "</head><body>"
     ));
 
-  server.sendContent(F("<div class='nav'><strong>ESP Somfy RTS - "));
+  server.sendContent(F("<div class='nav'>"
+    "<a class='nav-logo' href='/'>"
+      "<img src='/logo.png' alt='SmartWay Systems'>"
+      "<div class='nav-title'>ESP Somfy RTS - "));
   server.sendContent(prettyDeviceNameForUi());
   server.sendContent(
-    F("</strong><div class='sp'></div>"
-      "<a class='btn' href='/'>Home</a>"
-      "<a class='btn' href='/config'>Config</a>"
-      "<form style='display:inline' method='GET' action='/reboot'>"
-        "<button class='btn' type='submit'>Reboot</button>"
-      "</form>"
-      "<button class='btn' onclick='toggleDark()'>Light/Dark</button>"
+    F("</div>"
+    "</a>"
+    "<div class='sp'></div>"
+    "<a class='btn nicn' href='/' title='Home'>"
+      "<svg width='22' height='22' viewBox='0 0 24 24'><path d='M3 9.5L12 3l9 6.5V20a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V9.5z'/><path d='M9 21V12h6v9'/></svg>"
+    "</a>"
+    "<a class='btn nicn' href='/config' title='Config'>"
+      "<svg width='20' height='20' viewBox='0 0 24 24'><circle cx='12' cy='12' r='3'/><path d='M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z'/></svg>"
+    "</a>"
+    "<a class='btn nicn' href='/update' title='Firmware Update'>"
+      "<svg width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='16 16 12 12 8 16'/><line x1='12' y1='12' x2='12' y2='21'/><path d='M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3'/><polyline points='16 16 12 12 8 16'/></svg>"
+    "</a>"
+    "<button class='btn nicn' onclick='toggleDark()' title='Toggle dark mode'>"
+      "<svg class='icon-moon' width='20' height='20' viewBox='0 0 24 24'><path d='M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z'/></svg>"
+      "<svg class='icon-sun' width='20' height='20' viewBox='0 0 24 24'><circle cx='12' cy='12' r='5'/><line x1='12' y1='1' x2='12' y2='3'/><line x1='12' y1='21' x2='12' y2='23'/><line x1='4.22' y1='4.22' x2='5.64' y2='5.64'/><line x1='18.36' y1='18.36' x2='19.78' y2='19.78'/><line x1='1' y1='12' x2='3' y2='12'/><line x1='21' y1='12' x2='23' y2='12'/><line x1='4.22' y1='19.78' x2='5.64' y2='18.36'/><line x1='18.36' y1='5.64' x2='19.78' y2='4.22'/></svg>"
+    "</button>"
+    "<button class='btn nicn nicn-red' onclick=\"if(confirm('Reboot the device?'))location.href='/reboot'\" title='Reboot'>"
+      "<svg width='20' height='20' viewBox='0 0 24 24'><polyline points='23 4 23 10 17 10'/><path d='M20.49 15a9 9 0 1 1-2.12-9.36L23 10'/></svg>"
+    "</button>"
     "</div><div class='container'>")
   );
 
@@ -650,4 +676,141 @@ void handleRestoreBackupPost() {
   if (server.client()) server.client().flush();
   delay(150);
   scheduleReboot(2200);
+}
+
+void handleUpdateGet() {
+  pageBegin("Firmware Update");
+
+  pageWrite(F("<h1>Firmware Update</h1>"));
+
+  pageWrite(F("<div class='card'>"
+    "<div class='bar'>"
+      "<div>"
+        "<div class='muted' style='margin-bottom:4px'>Current version</div>"
+        "<div style='font-size:18px;font-weight:700'>"));
+  pageWrite(HA_SW_VERSION);
+  pageWrite(F("</div>"
+      "</div>"
+      "<div id='gh-block' style='text-align:right'>"
+        "<div class='muted' style='margin-bottom:4px'>Latest release</div>"
+        "<div id='gh-ver' style='font-size:18px;font-weight:700'>Checking...</div>"
+        "<a id='gh-dl' href='#' target='_blank' style='display:none;margin-top:6px' class='btn btn-sm'>Download latest .bin</a>"
+      "</div>"
+    "</div>"
+    "<div id='gh-status' style='margin-top:10px'></div>"
+  "</div>"));
+
+  pageWrite(F("<div class='card'>"
+    "<h3 style='margin:0 0 8px'>Upload firmware (.bin)</h3>"
+    "<div class='muted' style='margin-bottom:10px'>"
+      "Download the <b>.bin</b> from the "
+      "<a href='https://github.com/Hollako/ESP_SomfyRTS_HA_Gateway/releases' target='_blank' style='color:#1a6fc4'>lastest releases page</a>, "
+      "then select it below and click <b>Flash</b>."
+    "</div>"
+    "<form method='POST' action='/update' enctype='multipart/form-data' id='uf'>"
+      "<div style='display:flex;gap:8px;flex-wrap:wrap;align-items:center'>"
+        "<input type='file' name='firmware' accept='.bin' required id='binFile'>"
+        "<button class='btn' type='submit' id='flashBtn'>Flash</button>"
+      "</div>"
+    "</form>"
+    "<div id='prog' style='margin-top:10px;display:none'>"
+      "<div style='background:var(--border);border-radius:999px;height:8px;overflow:hidden'>"
+        "<div id='progBar' style='background:#1a6fc4;height:100%;width:0%;transition:width .3s'></div>"
+      "</div>"
+      "<div class='muted' style='margin-top:6px' id='progText'>Uploading...</div>"
+    "</div>"
+  "</div>"));
+
+  pageWrite(F(
+    "<script>"
+    "fetch('https://api.github.com/repos/Hollako/ESP_SomfyRTS_HA_Gateway/releases/latest',{cache:'no-store'})"
+      ".then(r=>r.json()).then(d=>{"
+        "const ver=d.tag_name||'unknown';"
+        "document.getElementById('gh-ver').textContent=ver;"
+        "const bin=(d.assets||[]).find(a=>a.name&&a.name.endsWith('.bin'));"
+        "const dlBtn=document.getElementById('gh-dl');"
+        "if(bin){dlBtn.href=bin.browser_download_url;dlBtn.style.display='inline-block';}"
+        "else{dlBtn.href='https://github.com/Hollako/ESP_SomfyRTS_HA_Gateway/releases/latest';dlBtn.style.display='inline-block';}"
+        "const cur='"));
+  pageWrite(HA_SW_VERSION);
+  pageWrite(F("';"
+        "const same=(ver===cur||ver==='v'+cur||'v'+ver===cur||ver.replace(/^v/,'')==cur.replace(/^v/,''));"
+        "const st=document.getElementById('gh-status');"
+        "if(same){"
+          "st.innerHTML=\"<span style='color:#19c37d;font-weight:600'>&#10003; Firmware is up to date</span>\";"
+        "}else{"
+          "st.innerHTML=\"<span style='color:#f59e0b;font-weight:600'>&#9650; New version available - click Download to get the firmware, Choose the file and click Flash</span>\";"
+        "}"
+      "})"
+      ".catch(()=>{"
+        "document.getElementById('gh-ver').textContent='Could not check';"
+      "});"
+    "document.getElementById('uf').addEventListener('submit',function(e){"
+      "e.preventDefault();"
+      "const f=document.getElementById('binFile').files[0];"
+      "if(!f)return;"
+      "document.getElementById('flashBtn').disabled=true;"
+      "document.getElementById('prog').style.display='block';"
+      "const fd=new FormData();"
+      "fd.append('firmware',f);"
+      "const xhr=new XMLHttpRequest();"
+      "xhr.open('POST','/update');"
+      "xhr.upload.onprogress=function(e){"
+        "if(e.lengthComputable){"
+          "const p=Math.round(e.loaded/e.total*100);"
+          "document.getElementById('progBar').style.width=p+'%';"
+          "document.getElementById('progText').textContent='Uploading... '+p+'%';"
+        "}"
+      "};"
+      "xhr.onload=function(){"
+        "if(xhr.status===200){"
+          "document.getElementById('progText').textContent='Flash complete! Rebooting...';"
+          "document.getElementById('progBar').style.width='100%';"
+          "setTimeout(()=>location.replace('/'),6000);"
+        "}else{"
+          "document.getElementById('progText').textContent='Flash failed: '+xhr.responseText;"
+          "document.getElementById('flashBtn').disabled=false;"
+        "}"
+      "};"
+      "xhr.onerror=function(){"
+        "document.getElementById('progText').textContent='Upload error. Check connection and try again.';"
+        "document.getElementById('flashBtn').disabled=false;"
+      "};"
+      "xhr.send(fd);"
+    "});"
+    "</script>"
+  ));
+
+  pageEnd();
+}
+
+void handleUpdateUpload() {
+  HTTPUpload& upload = server.upload();
+  if (upload.status == UPLOAD_FILE_START) {
+    Serial.printf("[OTA] Start: %s\n", upload.filename.c_str());
+    if (!Update.begin((size_t)-1)) {
+      Update.printError(Serial);
+    }
+  } else if (upload.status == UPLOAD_FILE_WRITE) {
+    if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
+      Update.printError(Serial);
+    }
+  } else if (upload.status == UPLOAD_FILE_END) {
+    if (Update.end(true)) {
+      Serial.printf("[OTA] Success: %u bytes\n", upload.totalSize);
+    } else {
+      Update.printError(Serial);
+    }
+  }
+}
+
+void handleUpdatePost() {
+  bool ok = !Update.hasError();
+  server.sendHeader("Connection", "close");
+  server.send(ok ? 200 : 500, "text/plain", ok ? "OK" : Update.getErrorString());
+  if (ok) {
+    if (server.client()) server.client().flush();
+    delay(300);
+    ESP.restart();
+  }
 }
