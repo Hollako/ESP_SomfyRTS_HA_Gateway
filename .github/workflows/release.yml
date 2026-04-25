@@ -30,4 +30,4 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            firmware_D1Mini_ESP8266.bin
+            ESPSomfyRTS_ESP8266.bin
