@@ -24,7 +24,7 @@ jobs:
 
       - name: Rename firmware files
         run: |
-          cp .pio/build/d1_mini/firmware.bin      firmware_D1Mini_ESP8266.bin
+          cp .pio/build/d1_mini/firmware.bin      ESPSomfyRTS_ESP8266.bin
 
       - name: Upload firmware to release
         uses: softprops/action-gh-release@v1
