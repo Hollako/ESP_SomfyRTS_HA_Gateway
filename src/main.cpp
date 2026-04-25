@@ -15,7 +15,7 @@
 const uint32_t DEV_ID_MAGIC = 0x534F4D46;
 const char* HA_MANUFACTURER = "SmartWay Systems";
 const char* HA_MODEL = "ESPSomfyRTS";
-const char* HA_SW_VERSION = "1.0.0";
+const char* HA_SW_VERSION = "1.3";
 
 ESP8266WebServer server(80);
 WiFiClient espClient;
