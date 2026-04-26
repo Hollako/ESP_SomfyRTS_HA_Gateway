@@ -91,7 +91,7 @@ static inline void pageBegin(const String& title) {
       ".status{display:flex;gap:12px;align-items:center;margin:10px 0}"
       ".badge{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:4px 8px;border-radius:999px;background:var(--card);border:1px solid var(--border)}"
       ".dot{width:8px;height:8px;border-radius:50%;background:#bbb}"
-      ".ok .dot{background:#19c37d}.err .dot{background:#ef4444}"
+      ".ok .dot{background:#19c37d}.warn .dot{background:#f59e0b}.err .dot{background:#ef4444}"
       ".bar{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}"
       ".btn-sm{padding:6px 10px;font-size:13px;border-radius:8px}"
       "input,select,button,textarea{background:var(--card);color:var(--fg);border:1px solid var(--border);border-radius:8px;padding:6px 8px}"
@@ -115,9 +115,16 @@ static inline void pageBegin(const String& title) {
         "if(st) st.textContent = staUp ? ('IP: ' + (b.sta_ip||'')) : 'No IP';"
         "const wb=document.getElementById('wifiBadge');"
         "const wt=document.getElementById('wifiText');"
-        "if(wb){wb.classList.toggle('ok', staUp); wb.classList.toggle('err', !staUp);}"
+        "if(wb){"
+          "const rssi=b.sta_rssi||0;"
+          "wb.classList.toggle('ok',   staUp && rssi>=50);"
+          "wb.classList.toggle('warn', staUp && rssi>=30 && rssi<50);"
+          "wb.classList.toggle('err',  !staUp || rssi<30);"
+        "}"
         "if(wt) wt.textContent = staUp ? ('Wi-Fi: ' + (b.sta_ssid||'') + ' (' + (b.sta_rssi||0) + '%)') : 'Wi-Fi: Disconnected';"
+        "const ab=document.getElementById('apBadge');"
         "const a=document.getElementById('apText');"
+        "if(ab){ab.classList.toggle('ok', !!b.ap_active); ab.classList.toggle('err', !b.ap_active);}"
         "if(a) a.textContent = b.ap_active ? ('AP: ' + (b.ap_ssid||'')) : 'AP: Off';"
       "}"
       "function poll(){fetch('/status',{cache:'no-store'}).then(r=>r.json()).then(upd).catch(()=>{});}"
@@ -161,26 +168,28 @@ static inline void pageBegin(const String& title) {
   "<div id='wifiBadge' class='badge'><span class='dot'></span><span id='wifiText'>Wi-Fi...</span></div>"
   "<div id='staBadge'  class='badge'><span class='dot'></span><span id='staText'>IP...</span></div>"
   "<div id='mqttBadge' class='badge'><span class='dot'></span><span id='mqttText'>MQTT...</span></div>"
-  "<div class='badge'><span class='dot' style='background:#888'></span><span id='apText'>AP...</span></div>"
+  "<div id='apBadge' class='badge'><span class='dot'></span><span id='apText'>AP...</span></div>"
   "</div>"));
 }
 
 static inline void pageWrite(const __FlashStringHelper* s) { server.sendContent(s); }
-static inline void pageWrite(const String& s) { server.sendContent(s); }
+static inline void pageWrite(const String& s) { if (s.length()) server.sendContent(s); }
+static inline void pageWrite(const char* s) { if (s && s[0]) server.sendContent(s); }
+static inline void pageFlush() { server.client().flush(); delay(1); }
 static inline void pageEnd() { server.sendContent(F("</div></body></html>")); }
 
 void handleRootGet() {
   pageBegin("Home");
 
-  pageWrite(F("<h1>Controls</h1>"));
+  pageWrite(F("<div class='muted' style='font-size:16px;font-weight:600;letter-spacing:0.04em;margin-bottom:6px'>Somfy RTS Motors</div>"));
   pageWrite(F("<div class='card'><div class='bar'>"
               "<div class='muted'>Active blinds: "));
-  pageWrite(String(blindCount));
+  pageWrite(String(activeBlindCount()));
   pageWrite(F(" / "));
   pageWrite(String(MAX_BLINDS));
   pageWrite(F("</div>"
               "<form method='POST' action='/blind/add'>"));
-  if (blindCount >= MAX_BLINDS) {
+  if (activeBlindCount() >= MAX_BLINDS) {
     pageWrite(F("<button class='btn btn-sm' type='submit' disabled>Max blinds reached</button>"));
   } else {
     pageWrite(F("<button class='btn btn-sm' type='submit'>Add blind</button>"));
@@ -190,6 +199,7 @@ void handleRootGet() {
   pageWrite(F("<div class='card'><div class='grid2'>"));
 
   for (int i = 1; i <= blindCount; i++) {
+    if (!isValidBlind(i)) continue;
     pageWrite(F("<div class='cardb'>"));
     pageWrite(F("<div class='rowline' style='margin:0 0 6px 0'>"));
     pageWrite(F("<div class='title' style='margin:0'>"));
@@ -198,7 +208,7 @@ void handleRootGet() {
                 "<input type='hidden' name='b' value='"));
     pageWrite(String(i));
     pageWrite(F("'>"));
-    if (blindCount <= MIN_BLINDS) {
+    if (activeBlindCount() <= MIN_BLINDS) {
       pageWrite(F("<button class='btn btn-sm btn-x' type='submit' disabled title='Minimum 1 blind'>X</button>"));
     } else {
       pageWrite(F("<button class='btn btn-sm btn-x' type='submit' title='Remove blind'>X</button>"));
@@ -303,7 +313,13 @@ void handleApPortalGet() {
   s += "<div class='card'><h3>Wi-Fi</h3>"
        "<form method='POST' action='/ap_portal_config'>"
        "<label>SSID</label><input name='wifi_ssid' type='text' value=''>"
-       "<label>Password</label><input name='wifi_pass' type='password' value=''>"
+       "<label>Password</label>"
+       "<div style='display:flex;gap:6px;align-items:center'>"
+         "<input id='wpass' name='wifi_pass' type='password' value=''>"
+         "<label style='display:flex;align-items:center;gap:4px;font-size:13px;color:#555;margin:0;cursor:pointer'>"
+           "<input type='checkbox' onclick=\"document.getElementById('wpass').type=this.checked?'text':'password'\">Show"
+         "</label>"
+       "</div>"
        "<div style='margin-top:8px;display:flex;gap:8px;flex-wrap:wrap'>"
        "<button class='btn' type='submit'>Save & Connect</button>"
        "<button class='btn' type='button' onclick='scanW()'>Scan</button>"
@@ -322,14 +338,28 @@ void handleApPortalGet() {
        "</div>";
 
   s += "<script>"
-       "function scanW(){fetch('/wifi_scan',{cache:'no-store'}).then(r=>r.json()).then(arr=>{"
-       " const sel=document.getElementById('nets'); sel.innerHTML='';"
-       " arr.sort((a,b)=>b.rssi-a.rssi).forEach(n=>{"
-       "   const o=document.createElement('option');"
-       "   o.text=(n.ssid||'(hidden)')+'  ['+n.rssi+'dBm]'; o.value=n.ssid; sel.add(o);"
-       " });"
-       " sel.onchange=()=>{document.querySelector(\"input[name='wifi_ssid']\").value=sel.value};"
-       "}).catch(()=>alert('Scan failed'));}"
+       "function scanW(){"
+         "const sel=document.getElementById('nets');"
+         "sel.innerHTML='<option>Scanning…</option>'; sel.disabled=true;"
+         "let t=0;"
+         "function poll(){"
+           "fetch('/wifi_scan',{cache:'no-store'}).then(r=>r.json()).then(arr=>{"
+             "if(arr.length===0&&t++<18){setTimeout(poll,800);return;}"
+             "sel.innerHTML='';"
+             "const ph=document.createElement('option');"
+             "ph.value=''; ph.text='Select from list'; ph.disabled=true; ph.selected=true;"
+             "sel.add(ph);"
+             "if(!arr.length){sel.disabled=false;return;}"
+             "arr.sort((a,b)=>b.rssi-a.rssi).forEach(n=>{"
+               "const o=document.createElement('option');"
+               "o.text=(n.ssid||'(hidden)')+'  ['+n.rssi+' dBm]'; o.value=n.ssid||''; sel.add(o);"
+             "});"
+             "sel.disabled=false;"
+             "sel.onchange=()=>{const si=document.querySelector(\"input[name='wifi_ssid']\");if(si&&sel.value)si.value=sel.value;};"
+           "}).catch(()=>{sel.innerHTML='<option>Scan failed</option>';sel.disabled=false;});"
+         "}"
+         "poll();"
+       "}"
        "</script>";
 
   server.send(200, "text/html; charset=utf-8", s);
@@ -350,31 +380,40 @@ void handleApPortalConfigPost() {
     delay(150);
   }
 
-  String s =
-    String("<!doctype html><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>")
-    + "<title>Wi-Fi</title><style>body{font-family:system-ui;margin:14px}</style>"
-    + (ok
-      ? String("<h3>Connected!</h3><p>IP: <b>") + WiFi.localIP().toString() + "</b></p>"
-        "<p>You can now browse the full UI at that address. This AP may turn off automatically.</p>"
-        "<p><a href='/'>Continue</a></p>"
-      : "<h3>Failed to connect</h3><p>Please double-check SSID/password and try again.</p>"
-        "<p><a href='/'>Back</a></p>");
+  String detail;
+  if (ok) {
+    String ip = WiFi.localIP().toString();
+    detail = String("Wi-Fi connected.<br>STA IP: <b>") + ip + "</b><br>"
+           + "After reboot, open: <a href='http://" + ip + "/'>http://" + ip + "/</a>";
+  } else {
+    detail = "Settings saved. Rebooting...<br>"
+             "If connection fails, reconnect to AP at <b>http://192.168.4.1/</b>";
+  }
 
-  server.send(200, "text/html; charset=utf-8", s);
+  sendRebootingPage("Saved", detail, 15, 5000);
+  if (server.client()) server.client().flush();
+  delay(150);
+  scheduleReboot(2200);
 }
 
 void handleConfigPost() {
-  if (server.hasArg("device_id")) {
+  auto nonEmpty = [](const String& v) { return v.length() > 0; };
+
+  if (server.hasArg("device_id") && nonEmpty(server.arg("device_id"))) {
     deviceId = normalizeDeviceId(server.arg("device_id"));
     eepromSaveDeviceId(deviceId);
+    apSsid = String(DEFAULT_AP_SSID_PREFIX) + deviceId;
   }
-  if (server.hasArg("wifi_ssid")) setStr(cfg.wifi_ssid, sizeof(cfg.wifi_ssid), server.arg("wifi_ssid"));
-  if (server.hasArg("wifi_pass")) setStr(cfg.wifi_pass, sizeof(cfg.wifi_pass), server.arg("wifi_pass"));
+  if (server.hasArg("wifi_ssid"))   setStr(cfg.wifi_ssid,   sizeof(cfg.wifi_ssid),   server.arg("wifi_ssid"));
+  if (server.hasArg("wifi_pass"))   setStr(cfg.wifi_pass,   sizeof(cfg.wifi_pass),   server.arg("wifi_pass"));
+  if (server.hasArg("wifi_ssid2"))  setStr(cfg.wifi_ssid2,  sizeof(cfg.wifi_ssid2),  server.arg("wifi_ssid2"));
+  if (server.hasArg("wifi_pass2"))  setStr(cfg.wifi_pass2,  sizeof(cfg.wifi_pass2),  server.arg("wifi_pass2"));
   if (server.hasArg("mqtt_server")) setStr(cfg.mqtt_server, sizeof(cfg.mqtt_server), server.arg("mqtt_server"));
-  if (server.hasArg("mqtt_port"))   cfg.mqtt_port = server.arg("mqtt_port").toInt();
-  if (server.hasArg("mqtt_user"))   setStr(cfg.mqtt_user, sizeof(cfg.mqtt_user), server.arg("mqtt_user"));
-  if (server.hasArg("mqtt_pass"))   setStr(cfg.mqtt_pass, sizeof(cfg.mqtt_pass), server.arg("mqtt_pass"));
-  if (server.hasArg("ap_ssid"))     apSsid = server.arg("ap_ssid");
+  if (server.hasArg("mqtt_port") && nonEmpty(server.arg("mqtt_port")))
+    cfg.mqtt_port = server.arg("mqtt_port").toInt() > 0 ? server.arg("mqtt_port").toInt() : 1883;
+  else if (!cfg.mqtt_port) cfg.mqtt_port = 1883;
+  if (server.hasArg("mqtt_user"))   setStr(cfg.mqtt_user,   sizeof(cfg.mqtt_user),   server.arg("mqtt_user"));
+  if (server.hasArg("mqtt_pass"))   setStr(cfg.mqtt_pass,   sizeof(cfg.mqtt_pass),   server.arg("mqtt_pass"));
   if (server.hasArg("ap_pass"))     apPass = server.arg("ap_pass");
   cfg.ha_discovery = server.hasArg("ha_discovery");
 
@@ -430,7 +469,7 @@ void handleConfigGet() {
   pageWrite(F("<h1>Configuration</h1>"));
   pageWrite(F("<form method='POST' action='/config'>"));
 
-  pageWrite(F("<div class='card form-sec'><h3>Device</h3>"));
+  pageWrite(F("<div class='card form-sec'><h3 style='margin-top:0'>Device</h3>"));
   pageWrite(F("<div class='form-grid'>"));
     pageWrite(F("<div class='field'><label>Device ID</label><input name='device_id' type='text' value='"));
     pageWrite(prettyDeviceNameForUi());
@@ -454,42 +493,54 @@ void handleConfigGet() {
     pageWrite(F("> Use internal pull-up</label></div></div>"));
   pageWrite(F("</div>"));
   pageWrite(F("</div>"));
+  pageFlush();
 
-  pageWrite(F("<div class='card form-sec'><h3>WiFi</h3>"));
+  pageWrite(F("<div class='card form-sec'><h3 style='margin-top:0'>WiFi</h3>"));
+  pageWrite(F("<div class='muted' style='margin-bottom:8px'>Primary network (tried first)</div>"));
   pageWrite(F("<div class='form-grid'>"));
-    pageWrite(F("<div class='field'><label>WiFi SSID (Station)</label><div class='inline'><input id='staSsid' name='wifi_ssid' type='text' style='min-width:200px' value='"));
+    pageWrite(F("<div class='field'><label>WiFi SSID</label><div class='inline'><input id='staSsid' name='wifi_ssid' type='text' style='min-width:200px' placeholder='Network name' value='"));
     pageWrite(String(cfg.wifi_ssid));
     pageWrite(F("'><select id='ssidSelect' style='min-width:220px'><option value=''> Select from scan </option></select><button type='button' class='btn' onclick='doScan()'>Scan</button></div></div>"));
-    pageWrite(F("<div class='field'><label>WiFi Password (Station)</label><input name='wifi_pass' type='password' value='"));
+    pageWrite(F("<div class='field'><label>WiFi Password</label><input name='wifi_pass' type='password' placeholder='Leave blank for open network' value='"));
     pageWrite(String(cfg.wifi_pass));
+    pageWrite(F("'></div>"));
+  pageWrite(F("</div>"));
+  pageWrite(F("<div class='muted' style='margin:10px 0 6px'>Fallback network (tried if primary fails)</div>"));
+  pageWrite(F("<div class='form-grid'>"));
+    pageWrite(F("<div class='field'><label>Fallback WiFi SSID</label><input name='wifi_ssid2' type='text' placeholder='Leave blank to disable' value='"));
+    pageWrite(String(cfg.wifi_ssid2));
+    pageWrite(F("'></div>"));
+    pageWrite(F("<div class='field'><label>Fallback WiFi Password</label><input name='wifi_pass2' type='password' placeholder='Leave blank for open network' value='"));
+    pageWrite(String(cfg.wifi_pass2));
     pageWrite(F("'></div>"));
   pageWrite(F("</div>"));
 
   pageWrite(F("<div class='form-grid' style='margin-top:8px'>"));
-    pageWrite(F("<div class='field'><label>AP SSID</label><input name='ap_ssid' type='text' value='"));
+    pageWrite(F("<div class='field'><label>AP SSID</label><input type='text' disabled value='"));
     pageWrite(apSsid);
-    pageWrite(F("'></div>"));
-    pageWrite(F("<div class='field'><label>AP Password</label><input name='ap_pass' type='password' value='"));
+    pageWrite(F("'><div class='muted' style='margin-top:4px'>Auto-set from Device ID</div></div>"));
+    pageWrite(F("<div class='field'><label>AP Password</label><input name='ap_pass' type='password' placeholder='Leave blank for open AP' value='"));
     pageWrite(apPass);
     pageWrite(F("'></div>"));
   pageWrite(F("</div>"));
   pageWrite(F("</div>"));
+  pageFlush();
 
-  pageWrite(F("<div class='card form-sec'><h3>MQTT</h3>"));
+  pageWrite(F("<div class='card form-sec'><h3 style='margin-top:0'>MQTT</h3>"));
   pageWrite(F("<div class='form-grid'>"));
-    pageWrite(F("<div class='field'><label>MQTT Server</label><input name='mqtt_server' type='text' value='"));
+    pageWrite(F("<div class='field'><label>MQTT Server</label><input name='mqtt_server' type='text' placeholder='e.g. 192.168.1.100' value='"));
     pageWrite(String(cfg.mqtt_server));
     pageWrite(F("'></div>"));
-    pageWrite(F("<div class='field'><label>MQTT Port</label><input name='mqtt_port' type='number' value='"));
-    pageWrite(String(cfg.mqtt_port));
+    pageWrite(F("<div class='field'><label>MQTT Port</label><input name='mqtt_port' type='number' min='1' max='65535' required placeholder='1883' value='"));
+    pageWrite(String(cfg.mqtt_port ? cfg.mqtt_port : 1883));
     pageWrite(F("'></div>"));
   pageWrite(F("</div>"));
 
   pageWrite(F("<div class='form-grid' style='margin-top:8px'>"));
-    pageWrite(F("<div class='field'><label>MQTT User</label><input name='mqtt_user' type='text' value='"));
+    pageWrite(F("<div class='field'><label>MQTT User</label><input name='mqtt_user' type='text' placeholder='Leave blank if not required' value='"));
     pageWrite(String(cfg.mqtt_user));
     pageWrite(F("'></div>"));
-    pageWrite(F("<div class='field'><label>MQTT Password</label><input name='mqtt_pass' type='password' value='"));
+    pageWrite(F("<div class='field'><label>MQTT Password</label><input name='mqtt_pass' type='password' placeholder='Leave blank if not required' value='"));
     pageWrite(String(cfg.mqtt_pass));
     pageWrite(F("'></div>"));
   pageWrite(F("</div>"));
@@ -501,8 +552,10 @@ void handleConfigGet() {
   pageWrite(F("<div style='margin-top:10px;display:flex;gap:8px;flex-wrap:wrap'><button class='btn' type='submit'>Save & Reboot</button><a class='btn' href='/'>Back</a></div>"));
   pageWrite(F("</div>"));
   pageWrite(F("</form>"));
+  pageFlush();
 
   pageWrite(F("<div class='card'>"
+              "<h3 style='margin-top:0'>Somfy RTS</h3>"
               "<div class='rowline'>"
                 "<div class='desc'>Regenerate all active Remote IDs (1.."));
   pageWrite(String(blindCount));
@@ -512,10 +565,6 @@ void handleConfigGet() {
                   "<input type='hidden' name='redirect' value='/config'>"
                   "<button class='btn btn-warn' type='submit'>Regenerate ALL</button>"
                 "</form>"
-              "</div>"
-              "<div class='rowline' style='margin-top:10px'>"
-                "<div class='desc'>Reboot device (Home Assistant discovery will be republished during boot).</div>"
-                "<button class='btn' type='button' onclick=\"location.href='/reboot'\">Reboot</button>"
               "</div>"
               "<div class='rowline' style='margin-top:10px'>"
                 "<div class='desc'>Manually republish Home Assistant discovery topics now.</div>"
@@ -534,6 +583,19 @@ void handleConfigGet() {
                 "</form>"
               "</div><div class='muted' style='margin-top:6px'>Restore expects a JSON file previously downloaded via <b>Backup</b>.</div></div>"));
 
+  pageWrite(F("<div class='card'>"
+                "<div class='rowline'>"
+                  "<div>"
+                    "<div style='font-weight:600;margin-bottom:4px'>Factory Reset</div>"
+                    "<div class='muted'>Erases all settings including Wi-Fi, MQTT, blinds and device ID. The device will reboot into AP setup mode.</div>"
+                  "</div>"
+                  "<form method='POST' action='/factory_reset' "
+                    "onsubmit=\"return confirm('Factory reset?\\nThis will erase ALL settings including Wi-Fi, MQTT and all blinds.\\nThe device will reboot into AP mode. This cannot be undone.')\">"
+                    "<button class='btn btn-warn' type='submit'>Factory Reset</button>"
+                  "</form>"
+                "</div>"
+              "</div>"));
+
   pageWrite(F(
     "<script>"
     "function doScan(){"
@@ -541,20 +603,26 @@ void handleConfigGet() {
       "const ss=document.getElementById('staSsid');"
       "if(!sel||!ss) return;"
       "sel.innerHTML='<option>Scanning...</option>'; sel.disabled=true;"
-      "fetch('/wifi_scan',{cache:'no-store'})"
-        ".then(r=>r.json()).then(list=>{"
-          "list.sort((a,b)=>(b.rssi||-999)-(a.rssi||-999));"
-          "let opts=\"<option value=''> Select from scan </option>\";"
-          "for(const n of list){"
-            "const s=n.ssid||''; const r=n.rssi; const enc=(n.enc&&n.enc!==0)?' [LOCK]':'';"
-            "const label=(s.length?s:'(hidden)')+'  ['+r+' dBm]'+enc;"
-            "const val=s.replace(/\"/g,'&quot;');"
-            "opts += \"<option value=\\\"\"+val+\"\\\">\"+label+\"</option>\";"
-          "}"
-          "sel.innerHTML=opts; sel.disabled=false;"
-          "sel.onchange=()=>{ if(sel.value) ss.value=sel.value; };"
-        "})"
-        ".catch(()=>{ sel.innerHTML=\"<option value=''>Scan failed - try again</option>\"; sel.disabled=false; });"
+      "let t=0;"
+      "function poll(){"
+        "fetch('/wifi_scan',{cache:'no-store'})"
+          ".then(r=>r.json()).then(list=>{"
+            "if(list.length===0&&t++<18){setTimeout(poll,800);return;}"
+            "list.sort((a,b)=>(b.rssi||-999)-(a.rssi||-999));"
+            "let opts=\"<option value=''> Select from scan </option>\";"
+            "if(!list.length){opts=\"<option value=''>No networks found</option>\";}"
+            "for(const n of list){"
+              "const s=n.ssid||''; const r=n.rssi; const enc=(n.enc&&n.enc!==0)?' [LOCK]':'';"
+              "const label=(s.length?s:'(hidden)')+'  ['+r+' dBm]'+enc;"
+              "const val=s.replace(/\"/g,'&quot;');"
+              "opts += \"<option value=\\\"\"+val+\"\\\">\"+label+\"</option>\";"
+            "}"
+            "sel.innerHTML=opts; sel.disabled=false;"
+            "sel.onchange=()=>{ if(sel.value) ss.value=sel.value; };"
+          "})"
+          ".catch(()=>{ sel.innerHTML=\"<option value=''>Scan failed - try again</option>\"; sel.disabled=false; });"
+      "}"
+      "poll();"
     "}"
     "</script>"
   ));
@@ -681,32 +749,28 @@ void handleRestoreBackupPost() {
 void handleUpdateGet() {
   pageBegin("Firmware Update");
 
-  pageWrite(F("<h1>Firmware Update</h1>"));
+  pageWrite(F("<h2 style='margin:0 0 10px;font-size:18px'>Firmware Update</h2>"));
 
+  // Single merged card
   pageWrite(F("<div class='card'>"
-    "<div class='bar'>"
+    "<div style='display:flex;justify-content:space-between;align-items:flex-start'>"
       "<div>"
         "<div class='muted' style='margin-bottom:4px'>Current version</div>"
-        "<div style='font-size:18px;font-weight:700'>"));
+        "<div style='font-size:26px;font-weight:700;line-height:1.2'>v"));
   pageWrite(HA_SW_VERSION);
   pageWrite(F("</div>"
       "</div>"
-      "<div id='gh-block' style='text-align:right'>"
+      "<div style='text-align:right'>"
         "<div class='muted' style='margin-bottom:4px'>Latest release</div>"
-        "<div id='gh-ver' style='font-size:18px;font-weight:700'>Checking...</div>"
-        "<a id='gh-dl' href='#' target='_blank' style='display:none;margin-top:6px' class='btn btn-sm'>Download latest .bin</a>"
+        "<div id='gh-ver' style='font-size:26px;font-weight:700;line-height:1.2'></div>"
+        "<div style='margin-top:8px'>"
+          "<a id='gh-dl' href='#' target='_blank' style='display:none' class='btn btn-sm'>Download latest .bin</a>"
+        "</div>"
       "</div>"
     "</div>"
-    "<div id='gh-status' style='margin-top:10px'></div>"
-  "</div>"));
-
-  pageWrite(F("<div class='card'>"
-    "<h3 style='margin:0 0 8px'>Upload firmware (.bin)</h3>"
-    "<div class='muted' style='margin-bottom:10px'>"
-      "Download the <b>.bin</b> from the "
-      "<a href='https://github.com/Hollako/ESP_SomfyRTS_HA_Gateway/releases' target='_blank' style='color:#1a6fc4'>lastest releases page</a>, "
-      "then select it below and click <b>Flash</b>."
-    "</div>"
+    "<div id='gh-status' style='margin-top:12px'></div>"
+    "<hr style='border:none;border-top:1px solid var(--border);margin:16px 12px'>"
+    "<div style='font-weight:600;margin-bottom:10px'>Upload Firmware File</div>"
     "<form method='POST' action='/update' enctype='multipart/form-data' id='uf'>"
       "<div style='display:flex;gap:8px;flex-wrap:wrap;align-items:center'>"
         "<input type='file' name='firmware' accept='.bin' required id='binFile'>"
@@ -719,6 +783,7 @@ void handleUpdateGet() {
       "</div>"
       "<div class='muted' style='margin-top:6px' id='progText'>Uploading...</div>"
     "</div>"
+    "<div class='muted' style='margin-top:10px'>Do not power off during update. Device will reboot automatically.</div>"
   "</div>"));
 
   pageWrite(F(
@@ -729,8 +794,9 @@ void handleUpdateGet() {
         "document.getElementById('gh-ver').textContent=ver;"
         "const bin=(d.assets||[]).find(a=>a.name&&a.name.endsWith('.bin'));"
         "const dlBtn=document.getElementById('gh-dl');"
-        "if(bin){dlBtn.href=bin.browser_download_url;dlBtn.style.display='inline-block';}"
-        "else{dlBtn.href='https://github.com/Hollako/ESP_SomfyRTS_HA_Gateway/releases/latest';dlBtn.style.display='inline-block';}"
+        "if(bin){dlBtn.href=bin.browser_download_url;}"
+        "else{dlBtn.href='https://github.com/Hollako/ESP_SomfyRTS_HA_Gateway/releases/latest';}"
+        "dlBtn.style.display='inline-block';"
         "const cur='"));
   pageWrite(HA_SW_VERSION);
   pageWrite(F("';"
@@ -743,7 +809,7 @@ void handleUpdateGet() {
         "}"
       "})"
       ".catch(()=>{"
-        "document.getElementById('gh-ver').textContent='Could not check';"
+        "document.getElementById('gh-ver').textContent='—';"
       "});"
     "document.getElementById('uf').addEventListener('submit',function(e){"
       "e.preventDefault();"
@@ -764,8 +830,8 @@ void handleUpdateGet() {
       "};"
       "xhr.onload=function(){"
         "if(xhr.status===200){"
-          "document.getElementById('progText').textContent='Flash complete! Rebooting...';"
           "document.getElementById('progBar').style.width='100%';"
+          "document.getElementById('progText').textContent='Flash complete! Rebooting...';"
           "setTimeout(()=>location.replace('/'),6000);"
         "}else{"
           "document.getElementById('progText').textContent='Flash failed: '+xhr.responseText;"

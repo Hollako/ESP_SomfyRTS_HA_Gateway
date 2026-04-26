@@ -8,6 +8,7 @@ int sanitizeLedGpio(int pin);
 int sanitizeButtonGpio(int pin);
 
 void setLed(bool on);
+void updateLed();
 void applyLedPin();
 void applyButtonPin();
 void pollButtonLongPress();
@@ -17,8 +18,10 @@ void serviceScheduledReboot();
 
 bool isApPortalMode();
 void beginSTAIfCreds();
+void requestStaConnect();
 void startAP();
 void stopAP();
+void keepApAliveFor(unsigned long ms);
 void updateWiFiSM();
 void installWiFiDebugHandlers();
 

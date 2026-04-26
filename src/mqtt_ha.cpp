@@ -240,6 +240,7 @@ void publishAllDiscoverySafe() {
   publishHAGatewayDiscovery();
   publishGatewayDiagnostics();
   for (int i = 1; i <= blindCount; i++) {
+    if (!isValidBlind(i)) continue;
     publishHACover(i);
     publishHAProgButton(i);
     publishState(i, "unknown");
@@ -326,6 +327,7 @@ void mqttEnsureConnected() {
   if (String(cfg.mqtt_server).length() == 0) return;
   if (WiFi.status() != WL_CONNECTED) return;
   if (mqtt.connected()) return;
+  if (server.client() && server.client().connected()) return;
   if (millis() - lastMqttAttempt < MQTT_RETRY_MS) return;
 
   lastMqttAttempt = millis();
@@ -352,6 +354,7 @@ void mqttEnsureConnected() {
     publishHAGatewayDiscovery();
     publishGatewayDiagnostics();
     for (int i = 1; i <= blindCount; i++) {
+      if (!isValidBlind(i)) continue;
       mqtt.subscribe((blindBaseTopic(i) + "/set").c_str());
       mqtt.subscribe((blindBaseTopic(i) + "/stop").c_str());
       mqtt.subscribe((blindBaseTopic(i) + "/prog").c_str());

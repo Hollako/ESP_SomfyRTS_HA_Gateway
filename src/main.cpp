@@ -15,7 +15,7 @@
 const uint32_t DEV_ID_MAGIC = 0x534F4D46;
 const char* HA_MANUFACTURER = "SmartWay Systems";
 const char* HA_MODEL = "ESPSomfyRTS";
-const char* HA_SW_VERSION = "1.3";
+const char* HA_SW_VERSION = "1.2";
 
 ESP8266WebServer server(80);
 WiFiClient espClient;
@@ -41,6 +41,7 @@ unsigned long nextStaAttempt = 0;
 const unsigned long STA_CONNECT_GRACE = 4000;
 const unsigned long STA_RETRY_INTERVAL = 6000;
 const uint8_t MAX_STA_RETRY = 5;
+uint8_t staWhichSsid = 1;
 
 String deviceId;
 String apSsid;
@@ -85,11 +86,13 @@ void setup() {
 
   if (!LittleFS.begin()) { LittleFS.format(); LittleFS.begin(); }
 
-  apSsid = String(DEFAULT_AP_SSID_PREFIX) + deviceId;
+  apSsid = String(DEFAULT_AP_SSID_PREFIX) + String(ESP.getChipId(), HEX);
   apPass = DEFAULT_AP_PASS;
 
   setStr(cfg.wifi_ssid,   sizeof(cfg.wifi_ssid),   "");
   setStr(cfg.wifi_pass,   sizeof(cfg.wifi_pass),   "");
+  setStr(cfg.wifi_ssid2,  sizeof(cfg.wifi_ssid2),  "");
+  setStr(cfg.wifi_pass2,  sizeof(cfg.wifi_pass2),  "");
   setStr(cfg.mqtt_server, sizeof(cfg.mqtt_server), "");
   cfg.mqtt_port = 1883;
   setStr(cfg.mqtt_user,   sizeof(cfg.mqtt_user),   "");
@@ -179,15 +182,14 @@ void setup() {
   });
 
   server.on("/blind/add", HTTP_POST, [](){
-    if (addBlind()) {
-      if (mqtt.connected()) {
-        mqtt.subscribe((blindBaseTopic(blindCount) + "/set").c_str());
-        mqtt.subscribe((blindBaseTopic(blindCount) + "/stop").c_str());
-        mqtt.subscribe((blindBaseTopic(blindCount) + "/prog").c_str());
-        rediscoveryScheduled = true;
-        rediscoveryPtr = blindCount;
-        nextRediscoveryAt = millis() + 200;
-      }
+    int newSlot = addBlind();
+    if (newSlot > 0 && mqtt.connected()) {
+      mqtt.subscribe((blindBaseTopic(newSlot) + "/set").c_str());
+      mqtt.subscribe((blindBaseTopic(newSlot) + "/stop").c_str());
+      mqtt.subscribe((blindBaseTopic(newSlot) + "/prog").c_str());
+      rediscoveryScheduled = true;
+      rediscoveryPtr = newSlot;
+      nextRediscoveryAt = millis() + 200;
     }
     server.sendHeader("Location", "/");
     server.send(302, "text/plain", "");
@@ -195,19 +197,14 @@ void setup() {
 
   server.on("/blind/remove", HTTP_POST, [](){
     int removed = server.hasArg("b") ? server.arg("b").toInt() : 0;
-    int oldCount = blindCount;
     if (removeBlind(removed)) {
       if (mqtt.connected()) {
-        mqtt.unsubscribe((blindBaseTopic(oldCount) + "/set").c_str());
-        mqtt.unsubscribe((blindBaseTopic(oldCount) + "/stop").c_str());
-        mqtt.unsubscribe((blindBaseTopic(oldCount) + "/prog").c_str());
-        mqtt.publish((blindBaseTopic(oldCount) + "/state").c_str(), "", true);
-        clearHABlindDiscovery(oldCount);
-        rediscoveryScheduled = true;
-        rediscoveryPtr = removed;
-        nextRediscoveryAt = millis() + 200;
+        mqtt.unsubscribe((blindBaseTopic(removed) + "/set").c_str());
+        mqtt.unsubscribe((blindBaseTopic(removed) + "/stop").c_str());
+        mqtt.unsubscribe((blindBaseTopic(removed) + "/prog").c_str());
+        mqtt.publish((blindBaseTopic(removed) + "/state").c_str(), "", true);
+        clearHABlindDiscovery(removed);
       }
-      if (rediscoveryPtr > blindCount) rediscoveryPtr = blindCount;
     }
     server.sendHeader("Location", "/");
     server.send(302, "text/plain", "");
@@ -240,6 +237,13 @@ void setup() {
   server.on("/reboot", HTTP_GET, [](){
     sendRebootingPage("Reboot requested", "");
     scheduleReboot(800);
+  });
+
+  server.on("/factory_reset", HTTP_POST, [](){
+    sendRebootingPage("Factory reset complete", "All settings erased. The device will restart in AP mode.", 12, 6000);
+    if (server.client()) server.client().flush();
+    delay(200);
+    factoryResetAndReboot();
   });
 
   server.on("/backup", HTTP_GET, [](){
@@ -354,9 +358,11 @@ void loop() {
   if (rediscoveryScheduled && mqtt.connected()) {
     if (millis() >= nextRediscoveryAt) {
       if (rediscoveryPtr >= 1 && rediscoveryPtr <= blindCount) {
-        publishHACover(rediscoveryPtr);
-        publishHAProgButton(rediscoveryPtr);
-        publishState(rediscoveryPtr, "unknown");
+        if (isValidBlind(rediscoveryPtr)) {
+          publishHACover(rediscoveryPtr);
+          publishHAProgButton(rediscoveryPtr);
+          publishState(rediscoveryPtr, "unknown");
+        }
         rediscoveryPtr++;
         nextRediscoveryAt = millis() + 120;
         delay(0);
@@ -379,10 +385,5 @@ void loop() {
     }
   }
 
-  static bool lastMQTT = false;
-  bool nowMQTT = mqtt.connected();
-  if (nowMQTT != lastMQTT) {
-    setLed(nowMQTT);
-    lastMQTT = nowMQTT;
-  }
+  updateLed();
 }

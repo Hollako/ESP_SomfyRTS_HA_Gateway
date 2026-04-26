@@ -87,7 +87,13 @@ int clampBlindCount(int n) {
 }
 
 bool isValidBlind(int n) {
-  return n >= 1 && n <= blindCount;
+  return n >= 1 && n <= MAX_BLINDS && remoteId[n] != 0;
+}
+
+int activeBlindCount() {
+  int c = 0;
+  for (int i = 1; i <= MAX_BLINDS; i++) if (remoteId[i]) c++;
+  return c;
 }
 
 static void ensureBlindInitialized(int n) {
@@ -105,47 +111,34 @@ static void ensureBlindInitialized(int n) {
   blindTypes[n] = sanitizeBlindType(blindTypes[n]);
 }
 
-static bool looksLikeDefaultBlindName(const String& name) {
-  if (!name.startsWith("Blind ")) return false;
-  if (name.length() <= 6) return false;
-  for (size_t i = 6; i < name.length(); i++) {
-    if (name[i] < '0' || name[i] > '9') return false;
-  }
-  return true;
-}
 
-static void normalizeDefaultBlindNames() {
-  for (int i = 1; i <= blindCount; i++) {
-    if (looksLikeDefaultBlindName(blindNames[i])) {
-      blindNames[i] = String("Blind ") + i;
+int addBlind() {
+  // Fill the first empty slot, expanding blindCount only if no gap exists
+  for (int i = 1; i <= MAX_BLINDS; i++) {
+    if (remoteId[i] == 0) {
+      ensureBlindInitialized(i);
+      if (i > blindCount) blindCount = i;
+      saveConfig();
+      saveRemotes();
+      return i;
     }
   }
-}
-
-bool addBlind() {
-  if (blindCount >= MAX_BLINDS) return false;
-  blindCount = clampBlindCount(blindCount + 1);
-  ensureBlindInitialized(blindCount);
-  normalizeDefaultBlindNames();
-  return saveConfig() && saveRemotes();
+  return 0; // All slots occupied
 }
 
 bool removeBlind(int n) {
   if (!isValidBlind(n)) return false;
-  if (blindCount <= MIN_BLINDS) return false;
+  if (activeBlindCount() <= MIN_BLINDS) return false;
 
-  for (int i = n; i < blindCount; i++) {
-    remoteId[i] = remoteId[i + 1];
-    rollingCode[i] = rollingCode[i + 1];
-    blindNames[i] = blindNames[i + 1];
-    blindTypes[i] = blindTypes[i + 1];
-  }
-  remoteId[blindCount] = 0;
-  rollingCode[blindCount] = 0;
-  blindNames[blindCount] = "";
-  blindTypes[blindCount] = BLIND_TYPE_BLIND;
-  blindCount = clampBlindCount(blindCount - 1);
-  normalizeDefaultBlindNames();
+  remoteId[n]    = 0;
+  rollingCode[n] = 0;
+  blindNames[n]  = "";
+  blindTypes[n]  = BLIND_TYPE_BLIND;
+
+  // Shrink blindCount to the highest remaining active slot
+  while (blindCount > 0 && remoteId[blindCount] == 0) blindCount--;
+  if (blindCount < MIN_BLINDS) blindCount = MIN_BLINDS;
+
   return saveConfig() && saveRemotes();
 }
 
@@ -228,8 +221,10 @@ bool loadConfig() {
 
   if (doc.containsKey("ap_ssid"))      apSsid = String((const char*)doc["ap_ssid"]);
   if (doc.containsKey("ap_pass"))      apPass = String((const char*)doc["ap_pass"]);
-  if (doc.containsKey("wifi_ssid"))    setStr(cfg.wifi_ssid, sizeof(cfg.wifi_ssid), String((const char*)doc["wifi_ssid"]));
-  if (doc.containsKey("wifi_pass"))    setStr(cfg.wifi_pass, sizeof(cfg.wifi_pass), String((const char*)doc["wifi_pass"]));
+  if (doc.containsKey("wifi_ssid"))    setStr(cfg.wifi_ssid,  sizeof(cfg.wifi_ssid),  String((const char*)doc["wifi_ssid"]));
+  if (doc.containsKey("wifi_pass"))    setStr(cfg.wifi_pass,  sizeof(cfg.wifi_pass),  String((const char*)doc["wifi_pass"]));
+  if (doc.containsKey("wifi_ssid2"))   setStr(cfg.wifi_ssid2, sizeof(cfg.wifi_ssid2), String((const char*)doc["wifi_ssid2"]));
+  if (doc.containsKey("wifi_pass2"))   setStr(cfg.wifi_pass2, sizeof(cfg.wifi_pass2), String((const char*)doc["wifi_pass2"]));
   if (doc.containsKey("mqtt_server"))  setStr(cfg.mqtt_server, sizeof(cfg.mqtt_server), String((const char*)doc["mqtt_server"]));
   if (doc.containsKey("mqtt_port"))    cfg.mqtt_port = (int)doc["mqtt_port"];
   if (doc.containsKey("mqtt_user"))    setStr(cfg.mqtt_user, sizeof(cfg.mqtt_user), String((const char*)doc["mqtt_user"]));
@@ -268,12 +263,14 @@ bool fsEnsureWritable() {
 bool saveConfig() {
   deviceId = normalizeDeviceId(deviceId);
 
-  DynamicJsonDocument doc(1536);
+  DynamicJsonDocument doc(1792);
   doc["device_id"]    = deviceId;
   doc["ap_ssid"]      = apSsid;
   doc["ap_pass"]      = apPass;
   doc["wifi_ssid"]    = cfg.wifi_ssid;
   doc["wifi_pass"]    = cfg.wifi_pass;
+  doc["wifi_ssid2"]   = cfg.wifi_ssid2;
+  doc["wifi_pass2"]   = cfg.wifi_pass2;
   doc["mqtt_server"]  = cfg.mqtt_server;
   doc["mqtt_port"]    = cfg.mqtt_port;
   doc["mqtt_user"]    = cfg.mqtt_user;
@@ -324,18 +321,19 @@ bool loadRemotes() {
     bool hasAny = doc.containsKey(rk) || doc.containsKey(ck) || doc.containsKey(nk);
     if (hasAny) inferredBlindCount = i;
 
-    remoteId[i]    = (uint32_t)(doc[rk]  | 0);
-    rollingCode[i] = (uint16_t)(doc[ck]  | 1);
-    String name    =               doc[nk] | ("Blind " + String(i));
+    if (!doc.containsKey(rk)) {
+      // Absent key = inactive slot, leave as zero
+      remoteId[i] = 0; rollingCode[i] = 0; blindNames[i] = ""; blindTypes[i] = BLIND_TYPE_BLIND;
+      continue;
+    }
+    remoteId[i]    = (uint32_t)(doc[rk] | 0);
+    rollingCode[i] = (uint16_t)(doc[ck] | 1);
+    blindNames[i]  = doc[nk] | ("Blind " + String(i));
     blindTypes[i]  = sanitizeBlindType((int)(doc[tk] | BLIND_TYPE_BLIND));
-
-    if (remoteId[i] == 0) remoteId[i] = genRandom24();
+    if (remoteId[i] == 0) { blindNames[i] = ""; continue; } // Explicitly saved as inactive
     if (rollingCode[i] == 0) rollingCode[i] = 1;
-    blindNames[i] = name;
   }
   if (!blindCountConfigured) blindCount = clampBlindCount(inferredBlindCount);
-  for (int i = 1; i <= blindCount; i++) ensureBlindInitialized(i);
-  normalizeDefaultBlindNames();
 
   Serial.printf("[REM] loaded OK (%u bytes)\n", (unsigned)sz);
   return true;
@@ -386,12 +384,13 @@ bool saveRemotes() {
 
   f.print("{\"v\":1");
   for (int i = 1; i <= blindCount; i++) {
-    f.print(",\"r"); f.print(i); f.print("\":");  f.print(remoteId[i]);
+    if (remoteId[i] == 0) continue; // Skip inactive slots
+    f.print(",\"r");  f.print(i); f.print("\":"); f.print(remoteId[i]);
     f.print(",\"rc"); f.print(i); f.print("\":"); f.print(rollingCode[i]);
-    f.print(",\"n"); f.print(i); f.print("\":\"");
+    f.print(",\"n");  f.print(i); f.print("\":\"");
     f.print(jsonEscape(blindNames[i]));
     f.print("\"");
-    f.print(",\"t"); f.print(i); f.print("\":"); f.print(blindTypes[i]);
+    f.print(",\"t");  f.print(i); f.print("\":"); f.print(blindTypes[i]);
     if ((i % 4) == 0) delay(0);
   }
   f.print("}");

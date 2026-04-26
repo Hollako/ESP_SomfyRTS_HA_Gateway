@@ -41,6 +41,8 @@ struct AppConfig {
   char device_id[32];
   char wifi_ssid[64];
   char wifi_pass[64];
+  char wifi_ssid2[64];
+  char wifi_pass2[64];
   char mqtt_server[64];
   int  mqtt_port;
   char mqtt_user[32];
@@ -77,6 +79,7 @@ extern unsigned long nextStaAttempt;
 extern const unsigned long STA_CONNECT_GRACE;
 extern const unsigned long STA_RETRY_INTERVAL;
 extern const uint8_t MAX_STA_RETRY;
+extern uint8_t staWhichSsid;
 
 extern String deviceId;
 extern String apSsid;

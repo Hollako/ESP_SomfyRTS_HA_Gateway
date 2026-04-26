@@ -13,7 +13,8 @@ const char* blindHaDeviceClass(int n);
 String blindName(int n);
 int clampBlindCount(int n);
 bool isValidBlind(int n);
-bool addBlind();
+int  activeBlindCount();
+int  addBlind();
 bool removeBlind(int n);
 String readWholeFile(const char* path);
 
