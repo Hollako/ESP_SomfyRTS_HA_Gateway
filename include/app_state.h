@@ -48,6 +48,7 @@ struct AppConfig {
   char mqtt_user[32];
   char mqtt_pass[32];
   bool ha_discovery;
+  char last_ssid_name[64];
 };
 
 extern const uint32_t DEV_ID_MAGIC;

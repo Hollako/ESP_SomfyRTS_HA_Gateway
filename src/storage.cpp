@@ -229,7 +229,9 @@ bool loadConfig() {
   if (doc.containsKey("mqtt_port"))    cfg.mqtt_port = (int)doc["mqtt_port"];
   if (doc.containsKey("mqtt_user"))    setStr(cfg.mqtt_user, sizeof(cfg.mqtt_user), String((const char*)doc["mqtt_user"]));
   if (doc.containsKey("mqtt_pass"))    setStr(cfg.mqtt_pass, sizeof(cfg.mqtt_pass), String((const char*)doc["mqtt_pass"]));
-  if (doc.containsKey("ha_discovery")) cfg.ha_discovery = (bool)doc["ha_discovery"];
+  if (doc.containsKey("ha_discovery"))    cfg.ha_discovery = (bool)doc["ha_discovery"];
+  if (doc.containsKey("last_ssid_name"))  setStr(cfg.last_ssid_name, sizeof(cfg.last_ssid_name), String((const char*)doc["last_ssid_name"]));
+  else                                    cfg.last_ssid_name[0] = '\0';
   blindCountConfigured = doc.containsKey("blind_count");
   if (blindCountConfigured) blindCount = clampBlindCount((int)doc["blind_count"]);
   if (doc.containsKey("tx_pin"))       txPin = sanitizeGpio((int)doc["tx_pin"]);
@@ -275,7 +277,8 @@ bool saveConfig() {
   doc["mqtt_port"]    = cfg.mqtt_port;
   doc["mqtt_user"]    = cfg.mqtt_user;
   doc["mqtt_pass"]    = cfg.mqtt_pass;
-  doc["ha_discovery"] = cfg.ha_discovery;
+  doc["ha_discovery"]   = cfg.ha_discovery;
+  doc["last_ssid_name"] = cfg.last_ssid_name;
   doc["blind_count"]  = blindCount;
   doc["tx_pin"]       = txPin;
   doc["led_pin"]      = ledPin;

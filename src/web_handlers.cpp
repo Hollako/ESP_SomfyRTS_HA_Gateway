@@ -95,11 +95,11 @@ static inline void pageBegin(const String& title) {
       ".bar{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}"
       ".btn-sm{padding:6px 10px;font-size:13px;border-radius:8px}"
       "input,select,button,textarea{background:var(--card);color:var(--fg);border:1px solid var(--border);border-radius:8px;padding:6px 8px}"
-      "button.btn{cursor:pointer}"
+      "button.btn{cursor:pointer;padding:8px 12px;border-radius:10px}"
       "button.btn:hover{filter:brightness(0.95)}"
       ".btn-warn{border-color:#e03131;background:#ffe3e3;color:#e03131}"
       "body.dark .btn-warn{background:rgba(224,49,49,.1);color:#ff6b6b}"
-      ".btn-x{width:30px;height:30px;padding:0;line-height:1;font-weight:700;border-color:#e03131;background:#ffe3e3;color:#e03131}"
+      ".btn-x{width:30px;height:30px;padding:0;display:inline-flex;align-items:center;justify-content:center;font-weight:700;border-color:#e03131;background:#ffe3e3;color:#e03131}"
       "body.dark .btn-x{background:rgba(224,49,49,.1);color:#ff6b6b}"
       "</style>"
       "<script>"
@@ -496,21 +496,21 @@ void handleConfigGet() {
   pageFlush();
 
   pageWrite(F("<div class='card form-sec'><h3 style='margin-top:0'>WiFi</h3>"));
-  pageWrite(F("<div class='muted' style='margin-bottom:8px'>Primary network (tried first)</div>"));
+  pageWrite(F("<div class='muted' style='margin-bottom:8px'>SSID 1</div>"));
   pageWrite(F("<div class='form-grid'>"));
-    pageWrite(F("<div class='field'><label>WiFi SSID</label><div class='inline'><input id='staSsid' name='wifi_ssid' type='text' style='min-width:200px' placeholder='Network name' value='"));
+    pageWrite(F("<div class='field'><label>SSID 1 Network</label><div class='inline'><input id='staSsid' name='wifi_ssid' type='text' style='min-width:200px' placeholder='Network name' value='"));
     pageWrite(String(cfg.wifi_ssid));
     pageWrite(F("'><select id='ssidSelect' style='min-width:220px'><option value=''> Select from scan </option></select><button type='button' class='btn' onclick='doScan()'>Scan</button></div></div>"));
-    pageWrite(F("<div class='field'><label>WiFi Password</label><input name='wifi_pass' type='password' placeholder='Leave blank for open network' value='"));
+    pageWrite(F("<div class='field'><label>SSID 1 Password</label><input name='wifi_pass' type='password' placeholder='Leave blank for open network' value='"));
     pageWrite(String(cfg.wifi_pass));
     pageWrite(F("'></div>"));
   pageWrite(F("</div>"));
-  pageWrite(F("<div class='muted' style='margin:10px 0 6px'>Fallback network (tried if primary fails)</div>"));
+  pageWrite(F("<div class='muted' style='margin:10px 0 6px'>SSID 2</div>"));
   pageWrite(F("<div class='form-grid'>"));
-    pageWrite(F("<div class='field'><label>Fallback WiFi SSID</label><input name='wifi_ssid2' type='text' placeholder='Leave blank to disable' value='"));
+    pageWrite(F("<div class='field'><label>SSID 2 Network</label><input name='wifi_ssid2' type='text' placeholder='Leave blank to disable' value='"));
     pageWrite(String(cfg.wifi_ssid2));
     pageWrite(F("'></div>"));
-    pageWrite(F("<div class='field'><label>Fallback WiFi Password</label><input name='wifi_pass2' type='password' placeholder='Leave blank for open network' value='"));
+    pageWrite(F("<div class='field'><label>SSID 2 Password</label><input name='wifi_pass2' type='password' placeholder='Leave blank for open network' value='"));
     pageWrite(String(cfg.wifi_pass2));
     pageWrite(F("'></div>"));
   pageWrite(F("</div>"));
@@ -549,8 +549,8 @@ void handleConfigGet() {
   if (cfg.ha_discovery) pageWrite(F("checked"));
   pageWrite(F("> Enable Home Assistant Discovery</label></div>"));
 
-  pageWrite(F("<div style='margin-top:10px;display:flex;gap:8px;flex-wrap:wrap'><button class='btn' type='submit'>Save & Reboot</button><a class='btn' href='/'>Back</a></div>"));
   pageWrite(F("</div>"));
+  pageWrite(F("<div style='margin-top:14px'><button class='btn' type='submit' style='padding:8px 12px;border-radius:10px'>Save &amp; Reboot</button></div>"));
   pageWrite(F("</form>"));
   pageFlush();
 

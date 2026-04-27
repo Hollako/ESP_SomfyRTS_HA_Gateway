@@ -13,6 +13,8 @@ void keepApAliveFor(unsigned long ms) {
 }
 
 static unsigned long btnLastSample = 0;
+static unsigned long staBusySince  = 0;
+static const unsigned long STA_ATTEMPT_TIMEOUT = 12000UL; // force-reset if busy > 12 s
 static unsigned long btnDownAt = 0;
 static bool btnWasDown = false;
 
@@ -25,9 +27,9 @@ int sanitizeGpio(int pin) {
     case 12:
     case 13:
     case 14:
-    case 15:
     case 16:
       return pin;
+    // GPIO15 excluded: must be held LOW at boot
     default:
       return 4;
   }
@@ -43,9 +45,9 @@ int sanitizeLedGpio(int pin) {
     case 12:
     case 13:
     case 14:
-    case 15:
     case 16:
       return pin;
+    // GPIO15 excluded: must be held LOW at boot on all ESP8266 boards
     default:
       return -1;
   }
@@ -61,9 +63,9 @@ int sanitizeButtonGpio(int pin) {
     case 12:
     case 13:
     case 14:
-    case 15:
     case 16:
       return pin;
+    // GPIO15 excluded: always LOW at boot — would permanently read as "pressed"
     default:
       return -1;
   }
@@ -207,13 +209,15 @@ void beginSTAIfCreds() {
   WiFi.setSleepMode(WIFI_NONE_SLEEP);
   WiFi.hostname(deviceId.c_str());
 
-  WiFi.disconnect(true);
-  delay(50);
+  WiFi.disconnect(false);
+  delay(100);
   WiFi.begin(ssid, pass);
 
-  staBusy = true;
+  staBusy      = true;
+  staBusySince = millis();
   staRetries++;
   nextStaAttempt = millis() + STA_CONNECT_GRACE;
+  Serial.printf("[WIFI] WiFi.begin('%s') called, staRetries now %u\n", ssid, staRetries);
 }
 
 void requestStaConnect() {
@@ -246,11 +250,12 @@ void startAP() {
 void stopAP() {
   if (!apActive) return;
   WiFi.softAPdisconnect(true);
-  WiFi.mode(WIFI_STA);
   apActive = false;
 }
 
 void updateWiFiSM() {
+  static bool lastSsidSaved = false;
+
   if (WiFi.status() == WL_CONNECTED) {
     if (apActive) {
       if (millis() >= apKeepUntil) {
@@ -259,8 +264,31 @@ void updateWiFiSM() {
         Serial.printf("[IP] Connected, IP address: %s\n", WiFi.localIP().toString().c_str());
       }
     }
+    // Save the connected SSID name once per connection (safe: runs in main loop)
+    if (!lastSsidSaved) {
+      String ssid = WiFi.SSID();
+      if (ssid.length() > 0) {
+        lastSsidSaved = true;
+        if (strcmp(cfg.last_ssid_name, ssid.c_str()) != 0) {
+          strncpy(cfg.last_ssid_name, ssid.c_str(), sizeof(cfg.last_ssid_name) - 1);
+          cfg.last_ssid_name[sizeof(cfg.last_ssid_name) - 1] = '\0';
+          saveConfig();
+          Serial.printf("[WIFI] Last SSID = '%s'\n", cfg.last_ssid_name);
+        }
+      }
+    }
     staBusy = false;
     return;
+  }
+
+  lastSsidSaved = false;  // reset when disconnected so next connection saves again
+
+  // Unstick staBusy if SDK never fired a disconnect event (e.g. WL_NO_SSID_AVAIL)
+  if (staBusy && millis() - staBusySince > STA_ATTEMPT_TIMEOUT) {
+    Serial.printf("[WIFI] attempt timed out after %lu ms (retries=%u slot=%u) — forcing next\n",
+      millis() - staBusySince, staRetries, staWhichSsid);
+    staBusy = false;
+    nextStaAttempt = millis() + STA_RETRY_INTERVAL;
   }
 
   bool hasPrimary   = cfg.wifi_ssid[0]  != '\0';
@@ -272,25 +300,52 @@ void updateWiFiSM() {
     return;
   }
 
+  // Periodic SM state dump (every 5 s, only when not mid-attempt)
+  static unsigned long lastDump = 0;
+  if (!staBusy && millis() - lastDump >= 5000UL) {
+    lastDump = millis();
+    Serial.printf("[SM] slot=%u retry=%u/%u ssid1='%s' ssid2='%s' last='%s'\n",
+      staWhichSsid, staRetries, MAX_STA_RETRY,
+      cfg.wifi_ssid, cfg.wifi_ssid2, cfg.last_ssid_name);
+  }
+
   // Primary exhausted → try secondary if available
   if (staRetries >= MAX_STA_RETRY && staWhichSsid == 1 && hasSecondary) {
-    Serial.println("[WIFI] Primary SSID exhausted, switching to secondary");
+    Serial.printf("[WIFI] SSID 1 exhausted (%u/%u), switching to SSID 2 '%s'\n",
+      staRetries, MAX_STA_RETRY, cfg.wifi_ssid2);
     staWhichSsid = 2;
     staRetries   = 0;
     staBusy      = false;
     nextStaAttempt = millis();
   }
 
-  // Both exhausted → AP mode
+  // Both exhausted → AP mode, then keep retrying every 30 s
   if (staRetries >= MAX_STA_RETRY) {
     if (!apActive) startAP();
+    Serial.printf("[WIFI] Both SSIDs exhausted (%u/%u), AP up, retrying in 30 s\n",
+      staRetries, MAX_STA_RETRY);
+    staWhichSsid   = 1;
+    staRetries     = 0;
+    staBusy        = false;
+    nextStaAttempt = millis() + 30000UL;
     return;
   }
 
   if (!staBusy && millis() >= nextStaAttempt) {
     const char* active = (staWhichSsid == 2 && hasSecondary) ? cfg.wifi_ssid2 : cfg.wifi_ssid;
-    Serial.printf("[WIFI] retry %u to '%s' (slot %d) status=%d\n", staRetries, active, staWhichSsid, WiFi.status());
+    Serial.printf("[WIFI] attempt %u/%u -> '%s' (slot %d)\n",
+      staRetries + 1, MAX_STA_RETRY, active, staWhichSsid);
     beginSTAIfCreds();
+  } else if (staBusy) {
+    // already waiting for connection result - do nothing
+  } else {
+    // waiting for nextStaAttempt
+    static unsigned long lastWaitLog = 0;
+    if (millis() - lastWaitLog >= 2000UL) {
+      lastWaitLog = millis();
+      Serial.printf("[WIFI] waiting %lu ms before next attempt (slot=%u retry=%u)\n",
+        nextStaAttempt - millis(), staWhichSsid, staRetries);
+    }
   }
 }
 
@@ -339,11 +394,11 @@ void installWiFiDebugHandlers() {
     staDiscReason = 0;
     staLastEvent = "GOT_IP " + ev.ip.toString();
     lastStaChangeMs = millis();
-    staBusy = false;
+    staBusy  = false;
     staRetries = 0;
-    staWhichSsid = 1;
-    Serial.printf("[WIFI] %s gw=%s mask=%s rssi=%d dBm\n",
-      staLastEvent.c_str(), ev.gw.toString().c_str(), ev.mask.toString().c_str(), WiFi.RSSI());
+    // Keep staWhichSsid as-is — do not reset to 1 here so SM retries same slot on drop
+    Serial.printf("[WIFI] %s (slot=%u) gw=%s mask=%s rssi=%d dBm\n",
+      staLastEvent.c_str(), staWhichSsid, ev.gw.toString().c_str(), ev.mask.toString().c_str(), WiFi.RSSI());
   });
 
   WiFi.onStationModeDisconnected([](const WiFiEventStationModeDisconnected& ev){
@@ -353,12 +408,8 @@ void installWiFiDebugHandlers() {
                  + " (" + String(ev.reason) + ")";
     lastStaChangeMs = millis();
     staBusy = false;
-
-    const bool manualLeave = (ev.reason == 8);
-    if (!manualLeave && staRetries < MAX_STA_RETRY) staRetries++;
-
     nextStaAttempt = millis() + STA_RETRY_INTERVAL;
-    Serial.printf("[WIFI] %s (retry=%u)\n", staLastEvent.c_str(), staRetries);
+    Serial.printf("[WIFI] %s | staRetries=%u slot=%u\n", staLastEvent.c_str(), staRetries, staWhichSsid);
   });
 
   WiFi.onStationModeDHCPTimeout([](){

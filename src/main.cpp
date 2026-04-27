@@ -15,7 +15,7 @@
 const uint32_t DEV_ID_MAGIC = 0x534F4D46;
 const char* HA_MANUFACTURER = "SmartWay Systems";
 const char* HA_MODEL = "ESPSomfyRTS";
-const char* HA_SW_VERSION = "1.2";
+const char* HA_SW_VERSION = "1.4";
 
 ESP8266WebServer server(80);
 WiFiClient espClient;
@@ -40,7 +40,7 @@ bool staBusy = false;
 unsigned long nextStaAttempt = 0;
 const unsigned long STA_CONNECT_GRACE = 4000;
 const unsigned long STA_RETRY_INTERVAL = 6000;
-const uint8_t MAX_STA_RETRY = 5;
+const uint8_t MAX_STA_RETRY = 3;
 uint8_t staWhichSsid = 1;
 
 String deviceId;
@@ -97,11 +97,25 @@ void setup() {
   cfg.mqtt_port = 1883;
   setStr(cfg.mqtt_user,   sizeof(cfg.mqtt_user),   "");
   setStr(cfg.mqtt_pass,   sizeof(cfg.mqtt_pass),   "");
-  cfg.ha_discovery = true;
+  cfg.ha_discovery       = true;
+  cfg.last_ssid_name[0]  = '\0';  // safe default before loadConfig
 
   bool loaded = loadConfig();
   if (!loaded && !LittleFS.exists(CONFIG_FILE)) {
     saveConfig();
+  }
+
+  // Boot from whichever slot matches the last successfully connected SSID name
+  Serial.printf("[WIFI] last_ssid_name='%s'  ssid1='%s'  ssid2='%s'\n",
+    cfg.last_ssid_name, cfg.wifi_ssid, cfg.wifi_ssid2);
+  if (cfg.last_ssid_name[0] != '\0' &&
+      cfg.wifi_ssid2[0]     != '\0' &&
+      strcmp(cfg.last_ssid_name, cfg.wifi_ssid2) == 0) {
+    staWhichSsid = 2;
+    Serial.println("[WIFI] Booting from last connected: SSID 2");
+  } else {
+    staWhichSsid = 1;
+    Serial.println("[WIFI] Booting from last connected: SSID 1");
   }
 
   ledPin = sanitizeLedGpio(ledPin);
