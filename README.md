@@ -66,9 +66,9 @@ The status LED reflects the device state via blink patterns:
 | LED pattern | Meaning |
 |---|---|
 | **Solid ON** | WiFi connected + MQTT connected (or no MQTT server configured) |
-| **Double pulse** — ●● pause ●● pause | WiFi connected, MQTT disconnecting / reconnecting |
-| **Fast blink** — 100 ms on / 100 ms off | WiFi connecting, retries in progress |
-| **Slow blink** — 500 ms on / 1500 ms off | AP mode only — no WiFi or all retries exhausted |
+| **Double pulse** - ●● pause ●● pause | WiFi connected, MQTT disconnecting / reconnecting |
+| **Fast blink** - 100 ms on / 100 ms off | WiFi connecting, retries in progress |
+| **Slow blink** - 500 ms on / 1500 ms off | AP mode only - no WiFi or all retries exhausted |
 
 > The LED pin and active-low logic are configurable on the **Config** page.
 
