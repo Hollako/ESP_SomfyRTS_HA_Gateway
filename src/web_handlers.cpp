@@ -169,6 +169,9 @@ static inline void pageBegin(const String& title) {
   "<div id='staBadge'  class='badge'><span class='dot'></span><span id='staText'>IP...</span></div>"
   "<div id='mqttBadge' class='badge'><span class='dot'></span><span id='mqttText'>MQTT...</span></div>"
   "<div id='apBadge' class='badge'><span class='dot'></span><span id='apText'>AP...</span></div>"
+  "<div class='badge' style='margin-left:auto'>v"));
+  server.sendContent(HA_SW_VERSION);
+  server.sendContent(F("</div>"
   "</div>"));
 }
 
@@ -496,30 +499,30 @@ void handleConfigGet() {
   pageFlush();
 
   pageWrite(F("<div class='card form-sec'><h3 style='margin-top:0'>WiFi</h3>"));
-  pageWrite(F("<div class='muted' style='margin-bottom:8px'>SSID 1</div>"));
+
   pageWrite(F("<div class='form-grid'>"));
-    pageWrite(F("<div class='field'><label>SSID 1 Network</label><div class='inline'><input id='staSsid' name='wifi_ssid' type='text' style='min-width:200px' placeholder='Network name' value='"));
+    pageWrite(F("<div class='field'><label style='font-size:11px;font-weight:700'>SSID 1 Network</label><div class='inline'><input id='staSsid' name='wifi_ssid' type='text' style='min-width:200px' placeholder='Network name' value='"));
     pageWrite(String(cfg.wifi_ssid));
     pageWrite(F("'><select id='ssidSelect' style='min-width:220px'><option value=''> Select from scan </option></select><button type='button' class='btn' onclick='doScan()'>Scan</button></div></div>"));
-    pageWrite(F("<div class='field'><label>SSID 1 Password</label><input name='wifi_pass' type='password' placeholder='Leave blank for open network' value='"));
+    pageWrite(F("<div class='field'><label style='font-size:11px;font-weight:700'>SSID 1 Password</label><input name='wifi_pass' type='password' placeholder='Leave blank for open network' value='"));
     pageWrite(String(cfg.wifi_pass));
     pageWrite(F("'></div>"));
   pageWrite(F("</div>"));
-  pageWrite(F("<div class='muted' style='margin:10px 0 6px'>SSID 2</div>"));
-  pageWrite(F("<div class='form-grid'>"));
-    pageWrite(F("<div class='field'><label>SSID 2 Network</label><input name='wifi_ssid2' type='text' placeholder='Leave blank to disable' value='"));
+
+  pageWrite(F("<div class='form-grid' style='margin-top:14px'>"));
+    pageWrite(F("<div class='field'><label style='font-size:11px;font-weight:700'>SSID 2 Network</label><input name='wifi_ssid2' type='text' placeholder='Leave blank to disable' value='"));
     pageWrite(String(cfg.wifi_ssid2));
     pageWrite(F("'></div>"));
-    pageWrite(F("<div class='field'><label>SSID 2 Password</label><input name='wifi_pass2' type='password' placeholder='Leave blank for open network' value='"));
+    pageWrite(F("<div class='field'><label style='font-size:11px;font-weight:700'>SSID 2 Password</label><input name='wifi_pass2' type='password' placeholder='Leave blank for open network' value='"));
     pageWrite(String(cfg.wifi_pass2));
     pageWrite(F("'></div>"));
   pageWrite(F("</div>"));
 
-  pageWrite(F("<div class='form-grid' style='margin-top:8px'>"));
-    pageWrite(F("<div class='field'><label>AP SSID</label><input type='text' disabled value='"));
+  pageWrite(F("<div class='form-grid' style='margin-top:14px'>"));
+    pageWrite(F("<div class='field'><label style='font-size:11px;font-weight:700'>AP SSID</label><input type='text' disabled value='"));
     pageWrite(apSsid);
     pageWrite(F("'><div class='muted' style='margin-top:4px'>Auto-set from Device ID</div></div>"));
-    pageWrite(F("<div class='field'><label>AP Password</label><input name='ap_pass' type='password' placeholder='Leave blank for open AP' value='"));
+    pageWrite(F("<div class='field'><label style='font-size:11px;font-weight:700'>AP Password</label><input name='ap_pass' type='password' placeholder='Leave blank for open AP' value='"));
     pageWrite(apPass);
     pageWrite(F("'></div>"));
   pageWrite(F("</div>"));
